@@ -1581,6 +1581,39 @@
         osc.stop(startT + dur);
     }
 
+    function playTitleMusic() {
+        if (!audioCtx || !musicEnabled) return;
+        if (currentMusicType === 'title') return;
+        stopMusic();
+        currentMusicType = 'title';
+
+        musicGain = audioCtx.createGain();
+        musicGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        musicGain.connect(audioCtx.destination);
+
+        const bpm = 50;
+        const bd = 60 / bpm;
+
+        // slow, mysterious ambient loop — C minor
+        const pad = [
+            {n:'C3',b:0},{n:'Eb3',b:2},{n:'G3',b:4},{n:'Eb3',b:6},
+            {n:'Ab3',b:8},{n:'G3',b:10},{n:'Eb3',b:12},{n:'D3',b:14}
+        ];
+        const high = [
+            {n:'G4',b:1},{n:'Eb4',b:5},{n:'C4',b:9},{n:'D4',b:13}
+        ];
+
+        function playBar() {
+            if (!musicEnabled || !audioCtx || currentMusicType !== 'title') return;
+            const now = audioCtx.currentTime;
+            pad.forEach(m => playNote(NF[m.n], bd*1.8, now+m.b*bd, 'sine', 0.06));
+            high.forEach(m => playNote(NF[m.n], bd*1.2, now+m.b*bd, 'triangle', 0.03));
+        }
+
+        playBar();
+        musicInterval = setInterval(playBar, bd * 16 * 1000);
+    }
+
     function playStealthMusic() {
         if (!audioCtx || !musicEnabled) return;
         if (currentMusicType === 'stealth') return;
@@ -3350,7 +3383,19 @@
         e.stopPropagation();
         initAudio();
         toggleMusic();
+        // Start title music if on menu and re-enabling sound
+        if (musicEnabled && gameState === GS.MENU) playTitleMusic();
     });
+
+    // Start title music on first interaction with the page
+    function startTitleMusic() {
+        initAudio();
+        if (gameState === GS.MENU) playTitleMusic();
+        document.removeEventListener('click', startTitleMusic);
+        document.removeEventListener('touchstart', startTitleMusic);
+    }
+    document.addEventListener('click', startTitleMusic);
+    document.addEventListener('touchstart', startTitleMusic);
 
     // Start game loop
     lastTime = performance.now();
