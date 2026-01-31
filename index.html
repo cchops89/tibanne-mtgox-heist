@@ -1588,26 +1588,47 @@
         currentMusicType = 'title';
 
         musicGain = audioCtx.createGain();
-        musicGain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+        musicGain.gain.setValueAtTime(0.3, audioCtx.currentTime);
         musicGain.connect(audioCtx.destination);
 
-        const bpm = 50;
+        const bpm = 120;
         const bd = 60 / bpm;
 
-        // slow, mysterious ambient loop — C minor
-        const pad = [
-            {n:'C3',b:0},{n:'Eb3',b:2},{n:'G3',b:4},{n:'Eb3',b:6},
-            {n:'Ab3',b:8},{n:'G3',b:10},{n:'Eb3',b:12},{n:'D3',b:14}
+        // upbeat heist groove — C minor, driving bass + punchy melody
+        const bass = [
+            {n:'C3',b:0},{n:'C3',b:1},{n:'Eb3',b:2},{n:'G3',b:3},
+            {n:'Ab3',b:4},{n:'Ab3',b:5},{n:'G3',b:6},{n:'Eb3',b:6.5},
+            {n:'C3',b:8},{n:'C3',b:9},{n:'Eb3',b:10},{n:'G3',b:11},
+            {n:'Ab3',b:12},{n:'G3',b:13},{n:'F3',b:14},{n:'D3',b:15}
         ];
-        const high = [
-            {n:'G4',b:1},{n:'Eb4',b:5},{n:'C4',b:9},{n:'D4',b:13}
+        const melody = [
+            {n:'C5',b:0},{n:'Eb5',b:1},{n:'G4',b:2},{n:'C5',b:3.5},
+            {n:'Ab4',b:4},{n:'G4',b:5},{n:'Eb4',b:6.5},
+            {n:'G4',b:8},{n:'C5',b:9},{n:'D5',b:10},{n:'Eb5',b:11.5},
+            {n:'D5',b:12},{n:'C5',b:13},{n:'G4',b:14.5}
+        ];
+        const perc = [
+            {b:0},{b:2},{b:4},{b:6},{b:8},{b:10},{b:12},{b:14}
         ];
 
         function playBar() {
             if (!musicEnabled || !audioCtx || currentMusicType !== 'title') return;
             const now = audioCtx.currentTime;
-            pad.forEach(m => playNote(NF[m.n], bd*1.8, now+m.b*bd, 'sine', 0.06));
-            high.forEach(m => playNote(NF[m.n], bd*1.2, now+m.b*bd, 'triangle', 0.03));
+            bass.forEach(m => playNote(NF[m.n]/2, bd*0.4, now+m.b*bd, 'sawtooth', 0.07));
+            melody.forEach(m => playNote(NF[m.n], bd*0.35, now+m.b*bd, 'square', 0.04));
+            perc.forEach(m => {
+                // hi-hat style tick
+                const o = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                o.connect(g); g.connect(musicGain);
+                o.type = 'square';
+                const t = now + m.b * bd;
+                o.frequency.setValueAtTime(1200, t);
+                o.frequency.exponentialRampToValueAtTime(200, t + 0.03);
+                g.gain.setValueAtTime(0.03, t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+                o.start(t); o.stop(t + 0.05);
+            });
         }
 
         playBar();
@@ -3387,15 +3408,33 @@
         if (musicEnabled && gameState === GS.MENU) playTitleMusic();
     });
 
-    // Start title music on first interaction with the page
+    // Try autoplay title music immediately; fall back to first interaction
     function startTitleMusic() {
         initAudio();
         if (gameState === GS.MENU) playTitleMusic();
         document.removeEventListener('click', startTitleMusic);
         document.removeEventListener('touchstart', startTitleMusic);
+        document.removeEventListener('keydown', startTitleMusic);
+        document.removeEventListener('mousemove', startTitleMusic);
     }
-    document.addEventListener('click', startTitleMusic);
-    document.addEventListener('touchstart', startTitleMusic);
+    // Attempt autoplay
+    try {
+        initAudio();
+        if (audioCtx && audioCtx.state === 'running') {
+            playTitleMusic();
+        } else {
+            // Browser blocked autoplay — wait for any interaction
+            document.addEventListener('click', startTitleMusic);
+            document.addEventListener('touchstart', startTitleMusic);
+            document.addEventListener('keydown', startTitleMusic);
+            document.addEventListener('mousemove', startTitleMusic, { once: true });
+        }
+    } catch(e) {
+        document.addEventListener('click', startTitleMusic);
+        document.addEventListener('touchstart', startTitleMusic);
+        document.addEventListener('keydown', startTitleMusic);
+        document.addEventListener('mousemove', startTitleMusic, { once: true });
+    }
 
     // Start game loop
     lastTime = performance.now();
