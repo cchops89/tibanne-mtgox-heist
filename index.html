@@ -2497,9 +2497,6 @@
                     case T.KEYBOARD:
                         ctx.fillStyle = COL.floor;
                         ctx.fillRect(px, py, TILE, TILE);
-                        ctx.strokeStyle = COL.floorLine;
-                        ctx.lineWidth = 0.5;
-                        ctx.strokeRect(px, py, TILE, TILE);
                         break;
 
                     case T.SERVER:
@@ -2646,7 +2643,7 @@
     }
 
     function drawObjectiveSprites() {
-        const sprSize = 48;
+        const sprSize = 96;
         const sprOff = (TILE - sprSize) / 2;
         for (const obj of objectives) {
             const px = obj.gridX * TILE;
