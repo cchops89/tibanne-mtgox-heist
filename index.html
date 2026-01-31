@@ -912,17 +912,11 @@
     </div>
 
     <script>
-    console.log('=== TIBANNE SCRIPT LOADED ===');
-
     // Computer sprites (preload early)
     const spriteComputer = new Image();
     spriteComputer.src = 'non-hacked-computer-sprite.png';
-    spriteComputer.onload = () => console.log('SPRITE OK: non-hacked');
-    spriteComputer.onerror = (e) => console.error('SPRITE FAIL: non-hacked', e);
     const spriteComputerHacked = new Image();
     spriteComputerHacked.src = 'hacked-computer-sprite.png';
-    spriteComputerHacked.onload = () => console.log('SPRITE OK: hacked');
-    spriteComputerHacked.onerror = (e) => console.error('SPRITE FAIL: hacked', e);
 
     // =========================================================================
     // === BACKGROUND CATS & MARKETCAP ========================================
@@ -1068,6 +1062,7 @@
                 { gridX: 15, gridY: 2, btc: 15000, hacked: false },
                 { gridX: 17, gridY: 11, btc: 10000, hacked: false }
             ],
+            catnip: [{ gx: 6, gy: 8 }],
             redditTitle: "SFYL: Mt. Gox users report 25,000 BTC missing",
             redditBody: "Karpel\u00e8s claims it's a 'minor accounting discrepancy'. Meanwhile, a cat hair was found on the server keyboard. Investigators are baffled.",
             startDialogue: "*purrs* Mark left the office... Time to do some 'hacking'.",
@@ -1139,6 +1134,7 @@
                 { gridX: 18, gridY: 5, btc: 30000, hacked: false },
                 { gridX: 17, gridY: 12, btc: 40000, hacked: false }
             ],
+            catnip: [{ gx: 8, gy: 11 }, { gx: 20, gy: 9 }],
             redditTitle: "100,000 BTC vanish from Mt. Gox hot wallet",
             redditBody: "Users report failed withdrawals for weeks. Mark blames 'transaction malleability'. Security footage shows only a cat walking through the server room at 3 AM.",
             startDialogue: "Withdrawals are slow? Must be all the cat hair in the servers...",
@@ -1231,6 +1227,7 @@
                 { gridX: 20, gridY: 3, btc: 30000, hacked: false },
                 { gridX: 20, gridY: 11, btc: 40000, hacked: false }
             ],
+            catnip: [{ gx: 3, gy: 8 }, { gx: 18, gy: 14 }],
             redditTitle: "200,000 BTC gone. 'Transaction malleability', they say.",
             redditBody: "Bitcoin hits $1000 and Mt. Gox can't process withdrawals. Karpel\u00e8s posts a photo of his cat. The internet is not amused. The cat looks very amused.",
             startDialogue: "Bitcoin at $1000? Time to hit the keyboard harder...",
@@ -1343,6 +1340,7 @@
                 { gridX: 14, gridY: 11, btc: 70000, hacked: false },
                 { gridX: 20, gridY: 10, btc: 80000, hacked: false }
             ],
+            catnip: [{ gx: 12, gy: 8 }, { gx: 3, gy: 15 }],
             redditTitle: "'Goxed' enters the crypto vocabulary",
             redditBody: "Withdrawals 'temporarily suspended'. 300,000 more BTC missing. Karpel\u00e8s assures users their funds are SAFU. Security cam shows a chonky orange cat napping on the main server.",
             startDialogue: "Withdrawals suspended? They'll never suspect the cat...",
@@ -1463,6 +1461,7 @@
                 { gridX: 14, gridY: 11, btc: 60000, hacked: false },
                 { gridX: 19, gridY: 10, btc: 60000, hacked: false }
             ],
+            catnip: [{ gx: 10, gy: 8 }, { gx: 3, gy: 15 }, { gx: 20, gy: 5 }],
             redditTitle: "850,000 BTC. Gone. Mt. Gox is dead.",
             redditBody: "Mark Karpel\u00e8s files for bankruptcy. The largest Bitcoin exchange is no more. A single cat hair was found inside every compromised server. Tibanne has no comment. Tibanne is sleeping.",
             startDialogue: "The final heist. After tonight, there won't be any Bitcoin left to steal...",
@@ -1669,6 +1668,8 @@
     let dialogText = '';
     let dialogTimer = 0;
     let cameraBlackout = 0;
+    let catnips = [];       // { gx, gy, collected }
+    let catnipTimer = 0;    // seconds remaining of invincibility
 
     // Cat (player)
     const cat = {
@@ -1781,6 +1782,8 @@
         noiseEvents = [];
         levelBtcStolen = 0;
         cameraBlackout = 0;
+        catnipTimer = 0;
+        catnips = (levelData.catnip || []).map(c => ({ gx: c.gx, gy: c.gy, collected: false }));
 
         // Show start dialogue
         showDialog(levelData.startDialogue, 4);
@@ -1880,7 +1883,7 @@
 
     function updateGuard(guard, dt) {
         // Update detection meter
-        const canSee = !cat.hiding && isPointVisible(guard, cat.x, cat.y);
+        const canSee = !cat.hiding && catnipTimer <= 0 && isPointVisible(guard, cat.x, cat.y);
 
         if (canSee) {
             const fillRate = cat.sneaking ? 35 : (cat.sprinting ? 90 : 60);
@@ -1960,7 +1963,7 @@
                     // Check if guard catches cat
                     const dx = cat.x - guard.x;
                     const dy = cat.y - guard.y;
-                    if (Math.sqrt(dx*dx + dy*dy) < TILE * 0.8) {
+                    if (catnipTimer <= 0 && Math.sqrt(dx*dx + dy*dy) < TILE * 0.8) {
                         catchCat();
                         return;
                     }
@@ -1996,7 +1999,7 @@
         if (cam.facing < minAngle) { cam.facing = minAngle; cam.sweepDir = 1; }
 
         // Detection
-        const canSee = !cat.hiding && isPointVisible(cam, cat.x, cat.y);
+        const canSee = !cat.hiding && catnipTimer <= 0 && isPointVisible(cam, cat.x, cat.y);
         if (canSee) {
             cam.detectionMeter = Math.min(100, cam.detectionMeter + 70 * dt);
             if (cam.detectionMeter >= 100) {
@@ -2380,6 +2383,32 @@
                     }
                 }
             }
+        }
+
+        // Catnip pickup check
+        const catGXnip = Math.floor(cat.x / TILE);
+        const catGYnip = Math.floor(cat.y / TILE);
+        for (const nip of catnips) {
+            if (!nip.collected && nip.gx === catGXnip && nip.gy === catGYnip) {
+                nip.collected = true;
+                catnipTimer = 5;
+                showDialog("CATNIP! Tibanne is invincible for 5 seconds!", 2.5);
+                // Reset all guard detection and make them idle
+                guards.forEach(g => {
+                    g.detectionMeter = 0;
+                    g.alertState = AS.IDLE;
+                });
+                cameras.forEach(c => { c.detectionMeter = 0; });
+                sfx(800, 0.1, 'sine', 0.15);
+                setTimeout(() => sfx(1000, 0.1, 'sine', 0.15), 100);
+                setTimeout(() => sfx(1200, 0.15, 'sine', 0.15), 200);
+            }
+        }
+
+        // Catnip timer countdown
+        if (catnipTimer > 0) {
+            catnipTimer -= dt;
+            if (catnipTimer <= 0) catnipTimer = 0;
         }
 
         // Update guards
@@ -2776,6 +2805,9 @@
 
         if (cat.hiding) {
             ctx.globalAlpha = 0.35;
+        } else if (catnipTimer > 0) {
+            // Mario star-mode blinking
+            ctx.globalAlpha = Math.sin(Date.now() / 60) > 0 ? 1.0 : 0.3;
         }
 
         ctx.translate(cx, cy);
@@ -3032,6 +3064,26 @@
         // Draw noise rings
         drawNoiseRings();
 
+        // Draw catnip
+        for (const nip of catnips) {
+            if (nip.collected) continue;
+            const nx = nip.gx * TILE + TILE / 2;
+            const ny = nip.gy * TILE + TILE / 2 + HUD_H;
+            const pulse = Math.sin(Date.now() / 250) * 0.3 + 0.7;
+            ctx.shadowColor = '#0f0';
+            ctx.shadowBlur = 8 + pulse * 6;
+            ctx.fillStyle = `rgba(0, 255, 0, ${pulse})`;
+            ctx.beginPath();
+            ctx.arc(nx, ny, 5, 0, Math.PI * 2);
+            ctx.fill();
+            // Inner bright core
+            ctx.fillStyle = '#7fff7f';
+            ctx.beginPath();
+            ctx.arc(nx, ny, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
         // Draw cameras
         cameras.forEach(drawCamera);
 
@@ -3052,6 +3104,16 @@
 
         // Camera blackout timer
         drawCameraBlackoutTimer();
+
+        // Catnip timer
+        if (catnipTimer > 0) {
+            ctx.save();
+            ctx.fillStyle = '#0f0';
+            ctx.font = 'bold 12px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText('CATNIP: ' + Math.ceil(catnipTimer) + 's', CANVAS_W - 8, HUD_H + 48);
+            ctx.restore();
+        }
 
         // Objective tracker
         drawObjectiveTracker();
