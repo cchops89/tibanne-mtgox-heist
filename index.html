@@ -2457,7 +2457,7 @@
     };
 
     function isNearObjective(gx, gy) {
-        return objectives.some(o => Math.abs(o.gridX - gx) <= 1 && Math.abs(o.gridY - gy) <= 1);
+        return objectives.some(o => Math.abs(o.gridX - gx) <= 2 && Math.abs(o.gridY - gy) <= 2);
     }
 
     function drawTiles() {
