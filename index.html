@@ -2497,9 +2497,9 @@
                         if (isObj && !isObj.hacked) {
                             ctx.shadowColor = COL.keyboardGlow;
                             ctx.shadowBlur = 10;
-                            if (spriteComputer.complete && spriteComputer.naturalWidth) {
+                            try {
                                 ctx.drawImage(spriteComputer, px + sprOff, py + sprOff, sprSize, sprSize);
-                            } else {
+                            } catch(e) {
                                 ctx.fillStyle = COL.keyboard;
                                 ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
                             }
@@ -2508,9 +2508,9 @@
                             const flash = Math.sin(Date.now() / 200) * 0.5 + 0.5;
                             ctx.shadowColor = `rgba(255, ${Math.floor(80 * flash)}, 0, 1)`;
                             ctx.shadowBlur = 6 + flash * 8;
-                            if (spriteComputerHacked.complete && spriteComputerHacked.naturalWidth) {
+                            try {
                                 ctx.drawImage(spriteComputerHacked, px + sprOff, py + sprOff, sprSize, sprSize);
-                            } else {
+                            } catch(e) {
                                 ctx.fillStyle = '#555';
                                 ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
                             }
