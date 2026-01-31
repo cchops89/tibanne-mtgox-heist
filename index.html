@@ -986,8 +986,12 @@
     // Computer sprites
     const spriteComputer = new Image();
     spriteComputer.src = 'non-hacked-computer-sprite.png';
+    spriteComputer.onload = () => console.log('SPRITE LOADED: non-hacked', spriteComputer.naturalWidth, spriteComputer.naturalHeight);
+    spriteComputer.onerror = (e) => console.error('SPRITE FAILED: non-hacked', e);
     const spriteComputerHacked = new Image();
     spriteComputerHacked.src = 'hacked-computer-sprite.png';
+    spriteComputerHacked.onload = () => console.log('SPRITE LOADED: hacked', spriteComputerHacked.naturalWidth, spriteComputerHacked.naturalHeight);
+    spriteComputerHacked.onerror = (e) => console.error('SPRITE FAILED: hacked', e);
 
     // Tile types
     const T = {
