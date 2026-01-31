@@ -2453,29 +2453,39 @@
                         ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
                         break;
 
-                    case T.KEYBOARD:
+                    case T.KEYBOARD: {
                         ctx.fillStyle = COL.floor;
                         ctx.fillRect(px, py, TILE, TILE);
-                        // Check if this is an objective
                         const isObj = objectives.find(o => o.gridX === x && o.gridY === y);
+                        const sprSize = 48;
+                        const sprOff = (TILE - sprSize) / 2;
                         if (isObj && !isObj.hacked) {
-                            // Solid green glow behind sprite
                             ctx.shadowColor = COL.keyboardGlow;
                             ctx.shadowBlur = 10;
                             if (spriteComputer.complete && spriteComputer.naturalWidth) {
-                                ctx.drawImage(spriteComputer, px, py, TILE, TILE);
+                                ctx.globalCompositeOperation = 'multiply';
+                                ctx.drawImage(spriteComputer, px + sprOff, py + sprOff, sprSize, sprSize);
+                                ctx.globalCompositeOperation = 'source-over';
+                                // Redraw with luminosity to kill white bg
+                                ctx.globalCompositeOperation = 'lighten';
+                                ctx.drawImage(spriteComputer, px + sprOff, py + sprOff, sprSize, sprSize);
+                                ctx.globalCompositeOperation = 'source-over';
                             } else {
                                 ctx.fillStyle = COL.keyboard;
                                 ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
                             }
                             ctx.shadowBlur = 0;
                         } else if (isObj && isObj.hacked) {
-                            // Flashing red/orange glow behind hacked sprite
                             const flash = Math.sin(Date.now() / 200) * 0.5 + 0.5;
                             ctx.shadowColor = `rgba(255, ${Math.floor(80 * flash)}, 0, 1)`;
                             ctx.shadowBlur = 6 + flash * 8;
                             if (spriteComputerHacked.complete && spriteComputerHacked.naturalWidth) {
-                                ctx.drawImage(spriteComputerHacked, px, py, TILE, TILE);
+                                ctx.globalCompositeOperation = 'multiply';
+                                ctx.drawImage(spriteComputerHacked, px + sprOff, py + sprOff, sprSize, sprSize);
+                                ctx.globalCompositeOperation = 'source-over';
+                                ctx.globalCompositeOperation = 'lighten';
+                                ctx.drawImage(spriteComputerHacked, px + sprOff, py + sprOff, sprSize, sprSize);
+                                ctx.globalCompositeOperation = 'source-over';
                             } else {
                                 ctx.fillStyle = '#555';
                                 ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
@@ -2486,6 +2496,7 @@
                             ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
                         }
                         break;
+                    }
 
                     case T.SERVER:
                         ctx.fillStyle = COL.floor;
