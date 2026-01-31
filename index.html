@@ -144,7 +144,7 @@
             background: rgba(0, 0, 0, 0.85);
             border: 1px solid #333;
             border-top: none;
-            border-radius: 0 0 8px 8px;
+            border-radius: 0;
             font-family: 'Courier New', monospace;
             font-size: clamp(10px, 2vw, 13px);
             z-index: 200;
@@ -171,6 +171,70 @@
 
         #footerBar .footer-credit a:hover {
             color: #fff;
+        }
+
+        /* Desktop control hints */
+        #desktopControls {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 18px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid #333;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            gap: 12px;
+        }
+
+        #desktopControls .ctrl-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        #desktopControls .ctrl-key {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            min-width: 28px;
+            height: 28px;
+            padding: 0 6px;
+            border-radius: 5px;
+            border: 1px solid rgba(247, 147, 26, 0.4);
+            background: rgba(247, 147, 26, 0.1);
+            color: #f7931a;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+        }
+
+        #desktopControls .ctrl-key.ctrl-green {
+            border-color: rgba(0, 255, 0, 0.4);
+            background: rgba(0, 255, 0, 0.08);
+            color: #0f0;
+        }
+
+        #desktopControls .ctrl-label {
+            color: rgba(255, 255, 255, 0.45);
+            font-size: 10px;
+        }
+
+        #desktopControls .arrow-keys {
+            display: grid;
+            grid-template-columns: 28px 28px 28px;
+            grid-template-rows: 28px 28px;
+            gap: 3px;
+        }
+
+        #desktopControls .arrow-keys .ctrl-key:nth-child(1) { grid-column: 2; }
+
+        @media (hover: none) and (pointer: coarse) {
+            #desktopControls { display: none; }
         }
 
         #alertBar {
@@ -782,6 +846,30 @@
     <div id="footerBar">
         <a href="https://pump.fun/coin/DRtvTCzfiKGhCVREmBbZdN9sB8PHeq9KdRZ3VmFhpump" target="_blank" rel="noopener">BUY $CHIEFPUSSY</a>
         <span class="footer-credit">Created By: <a href="https://x.com/thejpegjunkie" target="_blank" rel="noopener">@thejpegjunkie</a></span>
+    </div>
+
+    <div id="desktopControls">
+        <div class="ctrl-group">
+            <div class="arrow-keys">
+                <div class="ctrl-key">&uarr;</div>
+                <div class="ctrl-key">&larr;</div>
+                <div class="ctrl-key">&darr;</div>
+                <div class="ctrl-key">&rarr;</div>
+            </div>
+            <span class="ctrl-label">MOVE</span>
+        </div>
+        <div class="ctrl-group">
+            <div class="ctrl-key">SHIFT</div>
+            <span class="ctrl-label">SNEAK</span>
+        </div>
+        <div class="ctrl-group">
+            <div class="ctrl-key">SPACE</div>
+            <span class="ctrl-label">RUN</span>
+        </div>
+        <div class="ctrl-group">
+            <div class="ctrl-key ctrl-green">E</div>
+            <span class="ctrl-label">INTERACT</span>
+        </div>
     </div>
 
     <div id="mobileHudLeft" class="mobile-hud-panel">
@@ -2890,7 +2978,7 @@
         ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
         ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'left';
-        ctx.fillText('Keyboards: ' + done + '/' + total, 8, HUD_H + 30);
+        ctx.fillText('Hacks: ' + done + '/' + total, 8, HUD_H + 30);
     }
 
     // =========================================================================
