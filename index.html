@@ -1,0 +1,3137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Tibanne: The Mt. Gox Heist - A stealth game where you play as the cat that hacked Mt. Gox">
+    <title>Tibanne: The Mt. Gox Heist</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        body {
+            background: #121220;
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #catBackground {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        #catBackground img {
+            position: absolute;
+            filter: grayscale(10%);
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 800 / 600;
+            background: #1a1a28;
+            box-shadow: 0 0 40px rgba(255, 170, 0, 0.2);
+            z-index: 1;
+        }
+
+        @media (max-width: 800px) {
+            #gameContainer {
+                max-width: 100vw;
+                max-height: 75vw;
+            }
+        }
+
+        @media (max-height: 600px) and (orientation: landscape) {
+            #gameContainer {
+                height: 100vh;
+                width: calc(100vh * 800 / 600);
+                max-width: 100vw;
+            }
+        }
+
+        /* Mobile: fullscreen game + controls overlay */
+        @media (hover: none) and (pointer: coarse) and (orientation: landscape) {
+            body {
+                justify-content: center;
+            }
+            #marketcapBar {
+                display: none;
+            }
+            #hud {
+                display: none !important;
+            }
+            #gameContainer {
+                height: 100dvh;
+                width: calc(100dvh * 800 / 600);
+                max-width: 100vw;
+                max-height: 100dvh;
+                box-shadow: none;
+            }
+        }
+
+        #gameCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+            image-rendering: pixelated;
+        }
+
+        #hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #ff9900;
+            font-size: clamp(10px, 2.5vw, 16px);
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+            pointer-events: none;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.75);
+            padding: clamp(3px, 0.8vw, 6px) clamp(6px, 1.5vw, 12px);
+            border-bottom: 1px solid #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        #hud .btc-stolen { color: #f7931a; }
+        #hud .level-info { text-align: center; color: #aaa; }
+        #hud .lives { text-align: right; color: #ff6b6b; }
+
+        #marketcapBar {
+            width: 100%;
+            max-width: 400px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid #f7931a;
+            border-bottom: none;
+            border-radius: 8px 8px 0 0;
+            padding: 6px 20px;
+            z-index: 200;
+            font-family: 'Courier New', monospace;
+            font-size: clamp(14px, 3vw, 22px);
+            color: #f7931a;
+            white-space: nowrap;
+            text-align: center;
+        }
+
+        #marketcapBar .mc-label { color: #888; }
+        #marketcapBar .mc-value { color: #f7931a; font-weight: bold; }
+
+        #footerBar {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 14px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid #333;
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            font-family: 'Courier New', monospace;
+            font-size: clamp(10px, 2vw, 13px);
+            z-index: 200;
+        }
+
+        #footerBar a {
+            color: #f7931a;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        #footerBar a:hover {
+            color: #fff;
+            text-decoration: underline;
+        }
+
+        #footerBar .footer-credit {
+            color: #888;
+        }
+
+        #footerBar .footer-credit a {
+            color: #aaa;
+        }
+
+        #footerBar .footer-credit a:hover {
+            color: #fff;
+        }
+
+        #alertBar {
+            position: absolute;
+            top: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 4px;
+            background: rgba(0,0,0,0.5);
+            border: 1px solid #333;
+            z-index: 10;
+            pointer-events: none;
+            display: none;
+        }
+
+        #alertFill {
+            height: 100%;
+            width: 0%;
+            background: #4ade80;
+            transition: background 0.2s;
+        }
+
+        #startScreen {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.92);
+            color: #f7931a;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+            text-align: center;
+        }
+
+        #startScreen .title-image {
+            max-width: 80%;
+            max-height: 30%;
+            width: auto;
+            height: auto;
+            margin-bottom: 10px;
+            image-rendering: auto;
+        }
+
+        #startScreen h1 {
+            font-size: clamp(20px, 6vw, 40px);
+            margin-bottom: 5px;
+            color: #f7931a;
+            text-shadow: 2px 2px 8px rgba(247, 147, 26, 0.4);
+            font-family: 'Courier New', monospace;
+        }
+
+        #startScreen .subtitle {
+            font-size: clamp(10px, 3vw, 16px);
+            color: #888;
+            margin-bottom: 20px;
+        }
+
+        #startScreen .cat-ascii {
+            font-size: clamp(6px, 1.8vw, 12px);
+            color: #f7931a;
+            line-height: 1.2;
+            margin-bottom: 15px;
+            white-space: pre;
+            display: none;
+        }
+
+        #startScreen .lore {
+            font-size: clamp(9px, 2.5vw, 13px);
+            color: #aaa;
+            max-width: 500px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        #startScreen .controls-info {
+            font-size: clamp(9px, 2.2vw, 12px);
+            color: #666;
+            margin-bottom: 15px;
+        }
+
+        #startScreen .controls-info span { color: #f7931a; }
+
+        #startBtn {
+            padding: 12px 40px;
+            font-size: clamp(14px, 4vw, 20px);
+            background: transparent;
+            color: #f7931a;
+            border: 2px solid #f7931a;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        #startBtn:hover {
+            background: #f7931a;
+            color: #000;
+        }
+
+        #hackOverlay {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.92);
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 15px 25px;
+            font-family: 'Courier New', monospace;
+            font-size: clamp(10px, 2.5vw, 14px);
+            z-index: 50;
+            display: none;
+            min-width: 280px;
+            text-align: left;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+        }
+
+        #hackOverlay .hack-title { color: #0f0; margin-bottom: 8px; }
+        #hackOverlay .hack-bar {
+            background: #111;
+            border: 1px solid #0f0;
+            height: 14px;
+            margin: 6px 0;
+            position: relative;
+        }
+        #hackOverlay .hack-bar-fill {
+            background: #0f0;
+            height: 100%;
+            width: 0%;
+            transition: width 0.1s;
+        }
+        #hackOverlay .hack-addr { color: #0a0; font-size: 0.85em; }
+        #hackOverlay .hack-amount { color: #ff0; margin-top: 4px; }
+        #hackOverlay .hack-flavor { color: #555; font-style: italic; margin-top: 6px; font-size: 0.85em; }
+
+        #dialogBox {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.88);
+            border: 1px solid #f7931a;
+            color: #eee;
+            padding: 8px 16px;
+            font-family: 'Courier New', monospace;
+            font-size: clamp(9px, 2.2vw, 13px);
+            z-index: 50;
+            display: none;
+            max-width: 350px;
+            text-align: center;
+            line-height: 1.4;
+        }
+
+        #levelComplete {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.9);
+            color: #f7931a;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+        }
+
+        #levelComplete .reddit-post {
+            background: #222238;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 15px 20px;
+            max-width: 400px;
+            text-align: left;
+            margin-bottom: 20px;
+        }
+
+        #levelComplete .reddit-header {
+            color: #666;
+            font-size: clamp(8px, 2vw, 11px);
+            margin-bottom: 8px;
+        }
+
+        #levelComplete .reddit-title {
+            color: #d7dadc;
+            font-size: clamp(12px, 3vw, 16px);
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        #levelComplete .reddit-body {
+            color: #888;
+            font-size: clamp(9px, 2.2vw, 12px);
+            line-height: 1.4;
+        }
+
+        #levelComplete .stats {
+            color: #f7931a;
+            font-size: clamp(11px, 3vw, 15px);
+            margin-bottom: 15px;
+        }
+
+        #continueBtn {
+            padding: 10px 30px;
+            font-size: clamp(12px, 3vw, 16px);
+            background: transparent;
+            color: #f7931a;
+            border: 2px solid #f7931a;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        #continueBtn:hover {
+            background: #f7931a;
+            color: #000;
+        }
+
+        #gameOverScreen {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.92);
+            color: #ff4444;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+        }
+
+        #gameOverScreen h1 {
+            font-size: clamp(24px, 7vw, 42px);
+            margin-bottom: 10px;
+        }
+
+        #gameOverScreen .go-info {
+            color: #888;
+            font-size: clamp(10px, 2.5vw, 14px);
+            margin-bottom: 20px;
+        }
+
+        #retryBtn {
+            padding: 10px 30px;
+            font-size: clamp(12px, 3vw, 16px);
+            background: transparent;
+            color: #ff4444;
+            border: 2px solid #ff4444;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        #retryBtn:hover {
+            background: #ff4444;
+            color: #000;
+        }
+
+        #gameComplete {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.95);
+            color: #f7931a;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 20px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+        }
+
+        #gameComplete h1 {
+            font-size: clamp(20px, 6vw, 36px);
+            margin-bottom: 10px;
+        }
+
+        #gameComplete .gc-stats {
+            color: #f7931a;
+            font-size: clamp(11px, 3vw, 16px);
+            margin-bottom: 5px;
+        }
+
+        #gameComplete .gc-quote {
+            color: #666;
+            font-style: italic;
+            font-size: clamp(10px, 2.5vw, 14px);
+            margin: 15px 0;
+            max-width: 400px;
+        }
+
+        #replayBtn {
+            padding: 10px 30px;
+            font-size: clamp(12px, 3vw, 16px);
+            background: transparent;
+            color: #f7931a;
+            border: 2px solid #f7931a;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            transition: all 0.2s;
+            margin-top: 10px;
+        }
+
+        #replayBtn:hover {
+            background: #f7931a;
+            color: #000;
+        }
+
+        #muteBtn {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            width: 32px;
+            height: 32px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 1px solid #f7931a;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 150;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 16px;
+            color: #f7931a;
+        }
+
+        #muteBtn.muted {
+            color: #ff4444;
+            border-color: #ff4444;
+        }
+
+        /* Mobile touch controls */
+        #touchControls {
+            display: none;
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            z-index: 500;
+            pointer-events: none;
+            padding: 8px 14px;
+            padding-bottom: max(8px, env(safe-area-inset-bottom));
+            justify-content: space-between;
+            align-items: flex-end;
+            background: linear-gradient(transparent, rgba(0,0,0,0.7));
+        }
+
+        @media (hover: none) and (pointer: coarse) {
+            #touchControls { display: flex; }
+            #footerBar { display: none; }
+        }
+
+        /* Virtual joystick */
+        #touchJoystickZone {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            pointer-events: all;
+            touch-action: none;
+        }
+
+        #touchJoystickBase {
+            position: absolute;
+            width: 130px;
+            height: 130px;
+            border-radius: 50%;
+            background: rgba(247, 147, 26, 0.12);
+            border: 2px solid rgba(247, 147, 26, 0.35);
+            left: 5px; top: 5px;
+        }
+
+        #touchJoystickKnob {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: rgba(247, 147, 26, 0.5);
+            border: 2px solid rgba(247, 147, 26, 0.8);
+            left: 45px; top: 45px;
+            transition: none;
+        }
+
+        /* Action buttons */
+        #touchButtons {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end;
+            pointer-events: all;
+            touch-action: none;
+        }
+
+        #touchButtons .btn-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        .touch-btn {
+            width: 58px;
+            height: 58px;
+            border-radius: 50%;
+            border: 2px solid rgba(247, 147, 26, 0.5);
+            background: rgba(247, 147, 26, 0.1);
+            color: #f7931a;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            pointer-events: all;
+            touch-action: none;
+            line-height: 1.1;
+        }
+
+        .touch-btn.active {
+            background: rgba(247, 147, 26, 0.4);
+            border-color: #f7931a;
+        }
+
+        .touch-btn.btn-interact {
+            width: 70px;
+            height: 70px;
+            font-size: 14px;
+            border-color: rgba(0, 255, 0, 0.5);
+            color: #0f0;
+            background: rgba(0, 255, 0, 0.08);
+        }
+
+        .touch-btn.btn-interact.active {
+            background: rgba(0, 255, 0, 0.35);
+            border-color: #0f0;
+        }
+
+        /* Mobile HUD panels (top corners) */
+        .mobile-hud-panel {
+            display: none;
+            position: fixed;
+            z-index: 600;
+            flex-direction: column;
+            gap: 2px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 0 0 8px 0;
+            white-space: nowrap;
+            line-height: 1.4;
+        }
+
+        @media (hover: none) and (pointer: coarse) {
+            .mobile-hud-panel { display: flex; }
+        }
+
+        #mobileHudLeft {
+            top: 0; left: 0;
+            border-radius: 0 0 8px 0;
+        }
+
+        #mobileHudRight {
+            top: 0; right: 0;
+            border-radius: 0 0 0 8px;
+            text-align: right;
+            align-items: flex-end;
+        }
+
+        .mobile-hud-panel .th-btc { color: #f7931a; font-weight: bold; }
+        .mobile-hud-panel .th-level { color: #ccc; }
+        .mobile-hud-panel .th-lives { color: #ff6b6b; }
+
+        .mobile-hud-panel .th-mc-label {
+            color: #888;
+            font-size: 10px;
+            font-weight: normal;
+        }
+
+        .mobile-hud-panel .th-mc-value {
+            color: #f7931a;
+            font-size: 14px;
+            font-weight: bold;
+        }
+
+        .mobile-hud-panel .th-link {
+            font-size: 10px;
+            color: #f7931a;
+            text-decoration: none;
+            margin-top: 2px;
+            pointer-events: all;
+        }
+
+        .mobile-hud-panel .th-link-credit {
+            color: #aaa;
+        }
+
+        /* Landscape hint */
+        #landscapeHint {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: #f7931a;
+            font-family: 'Courier New', monospace;
+            font-size: 18px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        #landscapeHint .rotate-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        @media (hover: none) and (pointer: coarse) and (orientation: portrait) and (max-width: 600px) {
+            #landscapeHint { display: flex; }
+        }
+    </style>
+</head>
+<body>
+    <div id="catBackground"></div>
+    <div id="marketcapBar">
+        <span class="mc-label">$CHIEFPUSSY </span><span class="mc-value" id="mcValue">Loading...</span>
+    </div>
+    <div id="gameContainer" style="border-radius: 8px 8px 0 0; overflow: hidden;">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <button id="muteBtn" title="Toggle Sound">&#x1f50a;</button>
+
+        <div id="hud">
+            <div class="btc-stolen">BTC: <span id="btcDisplay">0</span></div>
+            <div class="level-info"><span id="levelDisplay">Level 1</span> - <span id="yearDisplay">2011</span></div>
+            <div class="lives">Lives: <span id="livesDisplay">9</span></div>
+        </div>
+
+        <div id="alertBar"><div id="alertFill"></div></div>
+
+        <div id="hackOverlay">
+            <div class="hack-title">&gt; HACKING IN PROGRESS...</div>
+            <div class="hack-bar"><div class="hack-bar-fill" id="hackBarFill"></div></div>
+            <div class="hack-addr">Sending to: <span id="hackAddr">1A1zP1eP...</span></div>
+            <div class="hack-amount">Amount: <span id="hackAmount">0</span> BTC</div>
+            <div class="hack-flavor" id="hackFlavor">"Tibanne is just sitting there"</div>
+        </div>
+
+        <div id="dialogBox"></div>
+
+        <div id="startScreen">
+            <img src="titleimage.png" alt="Tibanne Thecat" class="title-image">
+            <h1>TIBANNE THECAT</h1>
+            <div class="subtitle">The Mt. Gox Heist</div>
+            <div class="cat-ascii">
+    /\_/\
+   ( o.o )
+    > ^ <
+   /|   |\
+  (_|   |_)
+            </div>
+            <div class="lore">
+                The year is 2011. Mark Karpel&egrave;s leaves his cat Tibanne alone
+                in the Mt. Gox office. The servers hum. The keyboards glow.
+                850,000 BTC await their fate.
+            </div>
+            <div class="controls-info">
+                <span>WASD/Arrows</span> Move &nbsp;|&nbsp;
+                <span>Shift</span> Sneak &nbsp;|&nbsp;
+                <span>Space</span> Sprint<br>
+                <span>E</span> Interact (Hide / Hack / Distract)
+            </div>
+            <button id="startBtn">&gt; BEGIN HEIST</button>
+        </div>
+
+        <div id="levelComplete">
+            <div class="reddit-post">
+                <div class="reddit-header">r/Buttcoin &bull; Posted by u/TibanneTheCat</div>
+                <div class="reddit-title" id="lcRedditTitle">SFYL</div>
+                <div class="reddit-body" id="lcRedditBody">placeholder</div>
+            </div>
+            <div class="stats" id="lcStats">BTC Stolen: 0</div>
+            <button id="continueBtn">&gt;&gt; Continue &gt;&gt;</button>
+        </div>
+
+        <div id="gameOverScreen">
+            <h1>CAUGHT!</h1>
+            <div class="go-info" id="goInfo">Security got Tibanne. No more lives.</div>
+            <div class="go-info">Total BTC stolen: <span id="goTotalBtc">0</span></div>
+            <button id="retryBtn">&gt; Try Again</button>
+        </div>
+
+        <div id="gameComplete">
+            <h1>HEIST COMPLETE</h1>
+            <div class="gc-stats">Total BTC Stolen: <span id="gcTotalBtc">850,000</span></div>
+            <div class="gc-stats">At today's price: <span id="gcDollarValue">$$$</span></div>
+            <div class="gc-quote">"And that, r/Buttcoin, is the real story of Mt. Gox."</div>
+            <div class="gc-quote">"Tibanne did nothing wrong."</div>
+            <button id="replayBtn">&gt; Play Again</button>
+        </div>
+    </div>
+    <div id="footerBar">
+        <a href="https://pump.fun/coin/DRtvTCzfiKGhCVREmBbZdN9sB8PHeq9KdRZ3VmFhpump" target="_blank" rel="noopener">BUY $CHIEFPUSSY</a>
+        <span class="footer-credit">Created By: <a href="https://x.com/thejpegjunkie" target="_blank" rel="noopener">@thejpegjunkie</a></span>
+    </div>
+
+    <div id="mobileHudLeft" class="mobile-hud-panel">
+        <span class="th-btc">BTC: <span id="btcDisplayM">0</span></span>
+        <span class="th-level"><span id="levelDisplayM">Lv1</span> <span id="yearDisplayM">2011</span></span>
+        <span class="th-lives">Lives: <span id="livesDisplayM">9</span></span>
+        <a href="https://pump.fun/coin/DRtvTCzfiKGhCVREmBbZdN9sB8PHeq9KdRZ3VmFhpump" target="_blank" rel="noopener" class="th-link">BUY $CHIEFPUSSY</a>
+    </div>
+
+    <div id="mobileHudRight" class="mobile-hud-panel">
+        <span class="th-mc-label">$CHIEFPUSSY</span>
+        <span class="th-mc-value" id="mcValueM">...</span>
+        <a href="https://x.com/thejpegjunkie" target="_blank" rel="noopener" class="th-link th-link-credit">@thejpegjunkie</a>
+    </div>
+
+    <div id="touchControls">
+        <div id="touchJoystickZone">
+            <div id="touchJoystickBase"></div>
+            <div id="touchJoystickKnob"></div>
+        </div>
+        <div id="touchButtons">
+            <div class="btn-row">
+                <div class="touch-btn btn-interact" id="btnInteract">E</div>
+            </div>
+            <div class="btn-row">
+                <div class="touch-btn" id="btnSneak">SNEAK</div>
+                <div class="touch-btn" id="btnSprint">RUN</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="landscapeHint">
+        <div class="rotate-icon">&#x1f504;</div>
+        <div>Rotate your device to landscape</div>
+        <div style="color:#888; font-size:13px; margin-top:8px;">Tibanne needs room to sneak</div>
+    </div>
+
+    <script>
+    // =========================================================================
+    // === BACKGROUND CATS & MARKETCAP ========================================
+    // =========================================================================
+    (function initBackground() {
+        const bg = document.getElementById('catBackground');
+        const images = ['tibanneback.png', 'tibannefront.png'];
+        const cols = 6, rows = 4;
+        const cellW = 100 / cols, cellH = 100 / rows;
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                const img = document.createElement('img');
+                img.src = images[(r + c) % 2];
+                const size = 60 + Math.random() * 60;
+                img.style.width = size + 'px';
+                img.style.height = 'auto';
+                const jitterX = (Math.random() - 0.5) * cellW * 0.5;
+                const jitterY = (Math.random() - 0.5) * cellH * 0.5;
+                img.style.left = (c * cellW + cellW / 2 + jitterX) + '%';
+                img.style.top = (r * cellH + cellH / 2 + jitterY) + '%';
+                img.style.transform = 'translate(-50%, -50%) rotate(' + (Math.random() * 30 - 15) + 'deg)';
+                img.style.opacity = 0.25 + Math.random() * 0.15;
+                bg.appendChild(img);
+            }
+        }
+    })();
+
+    (function fetchMarketCap() {
+        const CA = 'DRtvTCzfiKGhCVREmBbZdN9sB8PHeq9KdRZ3VmFhpump';
+        const el = document.getElementById('mcValue');
+        const elM = document.getElementById('mcValueM');
+        function fmtMC(n) {
+            if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+            if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+            if (n >= 1e3) return '$' + (n / 1e3).toFixed(2) + 'K';
+            return '$' + Number(n).toLocaleString();
+        }
+        function setMC(txt) {
+            el.textContent = txt;
+            if (elM) elM.textContent = txt;
+        }
+        function update() {
+            fetch('https://api.dexscreener.com/latest/dex/tokens/' + CA)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.pairs && data.pairs.length > 0) {
+                        const mc = data.pairs[0].marketCap;
+                        if (mc != null) {
+                            setMC('MC ' + fmtMC(mc));
+                        } else {
+                            setMC('MC N/A');
+                        }
+                    } else {
+                        setMC('MC N/A');
+                    }
+                })
+                .catch(() => { setMC('MC N/A'); });
+        }
+        update();
+        setInterval(update, 30000);
+    })();
+
+    // =========================================================================
+    // === CONSTANTS & CONFIG ==================================================
+    // =========================================================================
+    const TILE = 32;
+    const GRID_W = 25;
+    const GRID_H = 18;      // 576px play area
+    const HUD_H = 24;       // top HUD offset
+    const CANVAS_W = 800;
+    const CANVAS_H = 600;
+
+    // Tile types
+    const T = {
+        FLOOR: 0, WALL: 1, DESK: 2, KEYBOARD: 3, SERVER: 4,
+        SHELF: 5, CHAIR: 6, VENT: 7, DOOR: 8, EXIT: 9, FUSE: 10
+    };
+
+    // Char-to-tile mapping for level layouts
+    const CHAR_MAP = {
+        '.': T.FLOOR, 'W': T.WALL, 'D': T.DESK, 'K': T.KEYBOARD,
+        'S': T.SERVER, 'H': T.SHELF, 'C': T.CHAIR, 'V': T.VENT,
+        'O': T.DOOR, 'X': T.EXIT, 'F': T.FUSE
+    };
+
+    const BLOCKING = new Set([T.WALL, T.DESK, T.SERVER]);
+
+    // Alert states
+    const AS = { IDLE: 0, SUSPICIOUS: 1, ALERT: 2, SEARCHING: 3 };
+
+    // Game states
+    const GS = {
+        MENU: 0, PLAYING: 1, HACKING: 2, DETECTED: 3,
+        CAUGHT: 4, LEVEL_COMPLETE: 5, GAME_OVER: 6, GAME_COMPLETE: 7
+    };
+
+    // =========================================================================
+    // === LEVEL DATA ==========================================================
+    // =========================================================================
+    const levels = [
+        {
+            id: 1,
+            name: "First Paws",
+            year: "2011",
+            targetBTC: 25000,
+            layout: [
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+                "W.......W.............WW",
+                "W.......W....DK......SWW",
+                "W.......W....C......SSWW",
+                "W.......W.............WW",
+                "W.......W.............WW",
+                "WWWW.WWWWWWWWW.WWWWWWWWW",
+                "W.......................W",
+                "W.......................W",
+                "W..H....................W",
+                "W.............W.......WW",
+                "W.............W..DK..WWW",
+                "W.............W..C...WWW",
+                "W.............W......WWW",
+                "W.............WWWWWWWWWW",
+                "W.......................W",
+                "W..X....................W",
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+            ],
+            playerStart: { x: 2, y: 16 },
+            guards: [
+                {
+                    x: 12, y: 4,
+                    patrol: [
+                        { x: 12, y: 4, wait: 2.5 },
+                        { x: 12, y: 8, wait: 1.5 },
+                        { x: 18, y: 8, wait: 2 },
+                        { x: 18, y: 4, wait: 1.5 }
+                    ],
+                    speed: 1.2,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                }
+            ],
+            cameras: [],
+            objectives: [
+                { gridX: 15, gridY: 2, btc: 15000, hacked: false },
+                { gridX: 17, gridY: 11, btc: 10000, hacked: false }
+            ],
+            redditTitle: "SFYL: Mt. Gox users report 25,000 BTC missing",
+            redditBody: "Karpel\u00e8s claims it's a 'minor accounting discrepancy'. Meanwhile, a cat hair was found on the server keyboard. Investigators are baffled.",
+            startDialogue: "*purrs* Mark left the office... Time to do some 'hacking'.",
+        },
+        {
+            id: 2,
+            name: "The Withdrawal",
+            year: "2012",
+            targetBTC: 100000,
+            layout: [
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+                "W........W....SSSSSS...W",
+                "W........W....SSSSSS...W",
+                "W..DK....W.............W",
+                "W..C.....W.............W",
+                "W........W......DK.....W",
+                "W........W......C......W",
+                "WWWWW.WWWWWW.WWWWWWWWWWW",
+                "W.......................W",
+                "W..H....................W",
+                "W.......................W",
+                "W...........W..........W",
+                "W..H........W....DK....W",
+                "W...........W....C.....W",
+                "W...........W.........HW",
+                "W...........WWWWWWWWWWWW",
+                "W..X....................W",
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+            ],
+            playerStart: { x: 2, y: 16 },
+            guards: [
+                {
+                    x: 4, y: 9,
+                    patrol: [
+                        { x: 4, y: 9, wait: 2 },
+                        { x: 10, y: 9, wait: 1 },
+                        { x: 10, y: 14, wait: 2 },
+                        { x: 4, y: 14, wait: 1 }
+                    ],
+                    speed: 1.4,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                },
+                {
+                    x: 18, y: 3,
+                    patrol: [
+                        { x: 18, y: 3, wait: 2 },
+                        { x: 18, y: 6, wait: 1.5 },
+                        { x: 14, y: 6, wait: 2 },
+                        { x: 14, y: 3, wait: 1.5 }
+                    ],
+                    speed: 1.3,
+                    fov: Math.PI / 2.8,
+                    viewDist: 5
+                }
+            ],
+            cameras: [
+                {
+                    gridX: 12, gridY: 7,
+                    baseAngle: Math.PI / 2,
+                    sweepRange: Math.PI / 2,
+                    sweepSpeed: 0.6,
+                    viewDist: 5,
+                    fov: Math.PI / 3.5
+                }
+            ],
+            objectives: [
+                { gridX: 5, gridY: 3, btc: 30000, hacked: false },
+                { gridX: 18, gridY: 5, btc: 30000, hacked: false },
+                { gridX: 17, gridY: 12, btc: 40000, hacked: false }
+            ],
+            redditTitle: "100,000 BTC vanish from Mt. Gox hot wallet",
+            redditBody: "Users report failed withdrawals for weeks. Mark blames 'transaction malleability'. Security footage shows only a cat walking through the server room at 3 AM.",
+            startDialogue: "Withdrawals are slow? Must be all the cat hair in the servers...",
+        },
+        {
+            id: 3,
+            name: "Transaction Malleability",
+            year: "2013",
+            targetBTC: 200000,
+            layout: [
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+                "W.......W...SSS..W.....W",
+                "W..DK...W...SSS..W.....W",
+                "W..C....W........W..DK.W",
+                "W.......WWWW.WWWWW..C..W",
+                "W..H...........H.......W",
+                "WWWWV WWWWWW.WWWWWW.WWWW",
+                "W.......................W",
+                "W.......................W",
+                "W.....W.......W........W",
+                "W..H..W..DK...W........W",
+                "W.....W..C....W..DK....W",
+                "W.....W.......W..C.....W",
+                "W.....WWWW.WWWW........W",
+                "W.......................W",
+                "W..H..............H....W",
+                "W..X....................W",
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+            ],
+            playerStart: { x: 2, y: 16 },
+            guards: [
+                {
+                    x: 10, y: 8,
+                    patrol: [
+                        { x: 10, y: 8, wait: 1.5 },
+                        { x: 16, y: 8, wait: 1.5 },
+                        { x: 16, y: 14, wait: 2 },
+                        { x: 10, y: 14, wait: 1.5 }
+                    ],
+                    speed: 1.5,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                },
+                {
+                    x: 4, y: 2,
+                    patrol: [
+                        { x: 4, y: 2, wait: 2 },
+                        { x: 4, y: 5, wait: 1 },
+                        { x: 8, y: 5, wait: 1.5 },
+                        { x: 8, y: 2, wait: 1 }
+                    ],
+                    speed: 1.3,
+                    fov: Math.PI / 2.5,
+                    viewDist: 4.5
+                },
+                {
+                    x: 20, y: 3,
+                    patrol: [
+                        { x: 20, y: 3, wait: 2 },
+                        { x: 20, y: 5, wait: 1 },
+                        { x: 22, y: 5, wait: 1 },
+                        { x: 22, y: 3, wait: 1 }
+                    ],
+                    speed: 1.2,
+                    fov: Math.PI / 3,
+                    viewDist: 4
+                }
+            ],
+            cameras: [
+                {
+                    gridX: 6, gridY: 6,
+                    baseAngle: Math.PI / 2,
+                    sweepRange: Math.PI / 1.8,
+                    sweepSpeed: 0.7,
+                    viewDist: 5,
+                    fov: Math.PI / 3.5
+                },
+                {
+                    gridX: 18, gridY: 4,
+                    baseAngle: Math.PI,
+                    sweepRange: Math.PI / 2,
+                    sweepSpeed: 0.5,
+                    viewDist: 5,
+                    fov: Math.PI / 3.5
+                }
+            ],
+            objectives: [
+                { gridX: 5, gridY: 2, btc: 60000, hacked: false },
+                { gridX: 12, gridY: 10, btc: 70000, hacked: false },
+                { gridX: 20, gridY: 3, btc: 30000, hacked: false },
+                { gridX: 20, gridY: 11, btc: 40000, hacked: false }
+            ],
+            redditTitle: "200,000 BTC gone. 'Transaction malleability', they say.",
+            redditBody: "Bitcoin hits $1000 and Mt. Gox can't process withdrawals. Karpel\u00e8s posts a photo of his cat. The internet is not amused. The cat looks very amused.",
+            startDialogue: "Bitcoin at $1000? Time to hit the keyboard harder...",
+        },
+        {
+            id: 4,
+            name: "Goxed",
+            year: "2013",
+            targetBTC: 300000,
+            layout: [
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+                "W..H....W.SSSSS.W......W",
+                "W.......W.SSSSS.W..DK..W",
+                "W..DK...W.......W..C...W",
+                "W..C....W.......W......W",
+                "W.......WWW.WWWWWWWW.WWW",
+                "WWWWW.WWWW..........F..W",
+                "W.......................W",
+                "W.......................W",
+                "W.......WWWW.WWWWW.....W",
+                "W..H....W......W..DK...W",
+                "W.......W..DK..W..C....W",
+                "W.......W..C...W.......W",
+                "W.......W......WWWWWWWWW",
+                "W.......WWW.WWWW.......W",
+                "W....................H..W",
+                "W..X....................W",
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+            ],
+            playerStart: { x: 2, y: 16 },
+            guards: [
+                {
+                    x: 4, y: 8,
+                    patrol: [
+                        { x: 4, y: 8, wait: 1.5 },
+                        { x: 10, y: 8, wait: 1 },
+                        { x: 10, y: 15, wait: 2 },
+                        { x: 4, y: 15, wait: 1 }
+                    ],
+                    speed: 1.5,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                },
+                {
+                    x: 14, y: 1,
+                    patrol: [
+                        { x: 14, y: 1, wait: 2 },
+                        { x: 14, y: 5, wait: 1 },
+                        { x: 20, y: 5, wait: 2 },
+                        { x: 20, y: 1, wait: 1 }
+                    ],
+                    speed: 1.4,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                },
+                {
+                    x: 14, y: 11,
+                    patrol: [
+                        { x: 14, y: 11, wait: 1.5 },
+                        { x: 14, y: 14, wait: 1.5 },
+                        { x: 20, y: 14, wait: 1.5 },
+                        { x: 20, y: 11, wait: 1 }
+                    ],
+                    speed: 1.3,
+                    fov: Math.PI / 2.5,
+                    viewDist: 4.5
+                },
+                {
+                    x: 8, y: 2,
+                    patrol: [
+                        { x: 4, y: 2, wait: 1 },
+                        { x: 4, y: 5, wait: 1 },
+                        { x: 7, y: 5, wait: 1 },
+                        { x: 7, y: 2, wait: 1 }
+                    ],
+                    speed: 2.0,
+                    fov: Math.PI / 3,
+                    viewDist: 4
+                }
+            ],
+            cameras: [
+                {
+                    gridX: 8, gridY: 6,
+                    baseAngle: Math.PI / 2,
+                    sweepRange: Math.PI / 1.5,
+                    sweepSpeed: 0.8,
+                    viewDist: 5,
+                    fov: Math.PI / 3
+                },
+                {
+                    gridX: 17, gridY: 5,
+                    baseAngle: Math.PI / 2,
+                    sweepRange: Math.PI / 2,
+                    sweepSpeed: 0.6,
+                    viewDist: 5,
+                    fov: Math.PI / 3.5
+                },
+                {
+                    gridX: 12, gridY: 9,
+                    baseAngle: Math.PI,
+                    sweepRange: Math.PI / 2,
+                    sweepSpeed: 0.7,
+                    viewDist: 5,
+                    fov: Math.PI / 3.5
+                }
+            ],
+            objectives: [
+                { gridX: 5, gridY: 3, btc: 70000, hacked: false },
+                { gridX: 21, gridY: 2, btc: 80000, hacked: false },
+                { gridX: 14, gridY: 11, btc: 70000, hacked: false },
+                { gridX: 20, gridY: 10, btc: 80000, hacked: false }
+            ],
+            redditTitle: "'Goxed' enters the crypto vocabulary",
+            redditBody: "Withdrawals 'temporarily suspended'. 300,000 more BTC missing. Karpel\u00e8s assures users their funds are SAFU. Security cam shows a chonky orange cat napping on the main server.",
+            startDialogue: "Withdrawals suspended? They'll never suspect the cat...",
+        },
+        {
+            id: 5,
+            name: "The Final Meow",
+            year: "2014",
+            targetBTC: 225000,
+            layout: [
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+                "W..H..W..SSS..W........W",
+                "W.....W..SSS..W...DK...W",
+                "W.DK..W.......W...C....W",
+                "W..C..WWW.WWWWW........W",
+                "W.........H...........HW",
+                "WWWWW.WWWWWWWW.WWWWWWWWW",
+                "W.......................W",
+                "W.H.....................W",
+                "W.....WWWW.WWWWW.......W",
+                "W.....W......W...DK....W",
+                "W.....W..DK..W...C.....W",
+                "W.....W..C...W.........W",
+                "W.....W......WWWWWWW.WWW",
+                "W.....WWW.WWWW.........W",
+                "W..................H...W",
+                "W..X....................W",
+                "WWWWWWWWWWWWWWWWWWWWWWWWW",
+            ],
+            playerStart: { x: 2, y: 16 },
+            guards: [
+                {
+                    x: 10, y: 8,
+                    patrol: [
+                        { x: 6, y: 8, wait: 1 },
+                        { x: 12, y: 8, wait: 1 },
+                        { x: 12, y: 14, wait: 1.5 },
+                        { x: 6, y: 14, wait: 1 }
+                    ],
+                    speed: 1.6,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                },
+                {
+                    x: 4, y: 2,
+                    patrol: [
+                        { x: 2, y: 2, wait: 1.5 },
+                        { x: 2, y: 5, wait: 1 },
+                        { x: 5, y: 5, wait: 1.5 },
+                        { x: 5, y: 2, wait: 1 }
+                    ],
+                    speed: 1.5,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                },
+                {
+                    x: 18, y: 2,
+                    patrol: [
+                        { x: 16, y: 2, wait: 1.5 },
+                        { x: 22, y: 2, wait: 1 },
+                        { x: 22, y: 5, wait: 1.5 },
+                        { x: 16, y: 5, wait: 1 }
+                    ],
+                    speed: 1.4,
+                    fov: Math.PI / 2.5,
+                    viewDist: 5
+                },
+                {
+                    x: 18, y: 12,
+                    patrol: [
+                        { x: 16, y: 10, wait: 1.5 },
+                        { x: 22, y: 10, wait: 1 },
+                        { x: 22, y: 15, wait: 1.5 },
+                        { x: 16, y: 15, wait: 1 }
+                    ],
+                    speed: 1.8,
+                    fov: Math.PI / 2.8,
+                    viewDist: 5
+                }
+            ],
+            cameras: [
+                {
+                    gridX: 5, gridY: 6,
+                    baseAngle: Math.PI / 2,
+                    sweepRange: Math.PI / 1.5,
+                    sweepSpeed: 0.8,
+                    viewDist: 5,
+                    fov: Math.PI / 3
+                },
+                {
+                    gridX: 14, gridY: 6,
+                    baseAngle: Math.PI / 2,
+                    sweepRange: Math.PI / 1.5,
+                    sweepSpeed: 0.7,
+                    viewDist: 5,
+                    fov: Math.PI / 3
+                },
+                {
+                    gridX: 9, gridY: 9,
+                    baseAngle: Math.PI,
+                    sweepRange: Math.PI / 2,
+                    sweepSpeed: 0.9,
+                    viewDist: 5,
+                    fov: Math.PI / 3
+                },
+                {
+                    gridX: 21, gridY: 13,
+                    baseAngle: Math.PI,
+                    sweepRange: Math.PI / 2,
+                    sweepSpeed: 0.6,
+                    viewDist: 5,
+                    fov: Math.PI / 3.5
+                }
+            ],
+            objectives: [
+                { gridX: 4, gridY: 3, btc: 50000, hacked: false },
+                { gridX: 19, gridY: 2, btc: 55000, hacked: false },
+                { gridX: 14, gridY: 11, btc: 60000, hacked: false },
+                { gridX: 19, gridY: 10, btc: 60000, hacked: false }
+            ],
+            redditTitle: "850,000 BTC. Gone. Mt. Gox is dead.",
+            redditBody: "Mark Karpel\u00e8s files for bankruptcy. The largest Bitcoin exchange is no more. A single cat hair was found inside every compromised server. Tibanne has no comment. Tibanne is sleeping.",
+            startDialogue: "The final heist. After tonight, there won't be any Bitcoin left to steal...",
+        }
+    ];
+
+    // =========================================================================
+    // === AUDIO SYSTEM ========================================================
+    // =========================================================================
+    let audioCtx = null;
+    let musicEnabled = true;
+    let musicGain = null;
+    let musicInterval = null;
+    let currentMusicType = null;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function sfx(freq, dur, type, vol, freqEnd) {
+        if (!audioCtx || !musicEnabled) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.connect(g);
+        g.connect(audioCtx.destination);
+        osc.type = type || 'sine';
+        const t = audioCtx.currentTime;
+        osc.frequency.setValueAtTime(freq, t);
+        if (freqEnd) osc.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+        g.gain.setValueAtTime(vol || 0.2, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        osc.start(t);
+        osc.stop(t + dur);
+    }
+
+    function playSneakStep() { sfx(60, 0.04, 'sine', 0.04); }
+    function playWalkStep() { sfx(90, 0.06, 'sine', 0.08); }
+    function playSprintStep() { sfx(120, 0.08, 'triangle', 0.12); }
+
+    function playDetectedSfx() {
+        sfx(400, 0.1, 'square', 0.2, 800);
+        setTimeout(() => sfx(800, 0.15, 'square', 0.2, 1200), 100);
+    }
+
+    function playSuspiciousSfx() {
+        sfx(300, 0.15, 'sine', 0.12, 450);
+    }
+
+    function playHackTyping() {
+        for (let i = 0; i < 5; i++) {
+            setTimeout(() => sfx(800 + Math.random() * 600, 0.03, 'square', 0.06), i * 60);
+        }
+    }
+
+    function playBtcSend() {
+        sfx(523, 0.1, 'sine', 0.2);
+        setTimeout(() => sfx(659, 0.1, 'sine', 0.2), 100);
+        setTimeout(() => sfx(784, 0.15, 'sine', 0.25), 200);
+        setTimeout(() => sfx(1047, 0.2, 'sine', 0.2), 300);
+    }
+
+    function playKnockSfx() {
+        sfx(200, 0.15, 'sawtooth', 0.15, 80);
+        setTimeout(() => sfx(120, 0.1, 'triangle', 0.1, 50), 100);
+    }
+
+    function playMeow() {
+        sfx(600, 0.2, 'sine', 0.15, 200);
+    }
+
+    function playCaughtSfx() {
+        sfx(400, 0.3, 'sawtooth', 0.25, 100);
+        setTimeout(() => sfx(200, 0.4, 'sawtooth', 0.2, 50), 300);
+    }
+
+    // Music
+    const NF = {
+        C3:130.81, D3:146.83, Eb3:155.56, E3:164.81, F3:174.61, G3:196, Ab3:207.65, A3:220, Bb3:233.08, B3:246.94,
+        C4:261.63, D4:293.66, Eb4:311.13, E4:329.63, F4:349.23, G4:392, Ab4:415.30, A4:440, Bb4:466.16, B4:493.88,
+        C5:523.25, D5:587.33, Eb5:622.25, E5:659.25, F5:698.46, G5:783.99
+    };
+
+    function playNote(freq, dur, startT, type, vol) {
+        if (!audioCtx || !musicEnabled || !musicGain) return;
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.connect(g);
+        g.connect(musicGain);
+        osc.type = type || 'square';
+        osc.frequency.setValueAtTime(freq, startT);
+        g.gain.setValueAtTime(vol || 0.08, startT);
+        g.gain.setValueAtTime(vol || 0.08, startT + dur * 0.7);
+        g.gain.exponentialRampToValueAtTime(0.001, startT + dur);
+        osc.start(startT);
+        osc.stop(startT + dur);
+    }
+
+    function playStealthMusic() {
+        if (!audioCtx || !musicEnabled) return;
+        if (currentMusicType === 'stealth') return;
+        stopMusic();
+        currentMusicType = 'stealth';
+
+        musicGain = audioCtx.createGain();
+        musicGain.gain.setValueAtTime(0.35, audioCtx.currentTime);
+        musicGain.connect(audioCtx.destination);
+
+        const bpm = 70;
+        const bd = 60 / bpm;
+
+        const melody = [
+            {n:'Eb4',b:0},{n:'D4',b:1},{n:'C4',b:2},{n:'G3',b:3},
+            {n:'Ab3',b:4},{n:'G3',b:5},{n:'Eb4',b:6},{n:'D4',b:7}
+        ];
+        const bass = [{n:'C3',b:0},{n:'C3',b:2},{n:'Ab3',b:4},{n:'G3',b:6}];
+
+        function playBar() {
+            if (!musicEnabled || !audioCtx || currentMusicType !== 'stealth') return;
+            const now = audioCtx.currentTime;
+            melody.forEach(m => playNote(NF[m.n], bd*0.6, now+m.b*bd, 'triangle', 0.05));
+            bass.forEach(m => playNote(NF[m.n]/2, bd*1.8, now+m.b*bd, 'sine', 0.1));
+        }
+
+        playBar();
+        musicInterval = setInterval(playBar, bd * 8 * 1000);
+    }
+
+    function playAlertMusic() {
+        if (!audioCtx || !musicEnabled) return;
+        if (currentMusicType === 'alert') return;
+        stopMusic();
+        currentMusicType = 'alert';
+
+        musicGain = audioCtx.createGain();
+        musicGain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        musicGain.connect(audioCtx.destination);
+
+        const bpm = 140;
+        const bd = 60 / bpm;
+
+        function playBar() {
+            if (!musicEnabled || !audioCtx || currentMusicType !== 'alert') return;
+            const now = audioCtx.currentTime;
+            for (let i = 0; i < 8; i++) {
+                playNote(NF['C3']/2, bd*0.3, now+i*bd, 'sawtooth', i%2===0?0.12:0.06);
+            }
+            const mel = ['A4','C5','A4','E5','D5','C5','A4','G4'];
+            mel.forEach((n,i) => playNote(NF[n], bd*0.2, now+i*bd, 'square', 0.07));
+        }
+
+        playBar();
+        musicInterval = setInterval(playBar, bd * 8 * 1000);
+    }
+
+    function stopMusic() {
+        currentMusicType = null;
+        if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+        if (musicGain && audioCtx) {
+            try { musicGain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1); } catch(e) {}
+            musicGain = null;
+        }
+    }
+
+    function toggleMusic() {
+        musicEnabled = !musicEnabled;
+        const btn = document.getElementById('muteBtn');
+        if (musicEnabled) {
+            btn.innerHTML = '&#x1f50a;';
+            btn.classList.remove('muted');
+            if (gameState === GS.PLAYING) playStealthMusic();
+        } else {
+            btn.innerHTML = '&#x1f507;';
+            btn.classList.add('muted');
+            stopMusic();
+        }
+    }
+
+    // =========================================================================
+    // === CANVAS SETUP ========================================================
+    // =========================================================================
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // =========================================================================
+    // === GAME STATE ==========================================================
+    // =========================================================================
+    let gameState = GS.MENU;
+    let currentLevelIndex = 0;
+    let totalBtcStolen = 0;
+
+    // Current level state
+    let tiles = [];
+    let collisionMap = [];
+    let guards = [];
+    let cameras = [];
+    let objectives = [];
+    let noiseEvents = [];
+    let interactables = []; // shelves, desks for hiding
+    let fuseBoxes = [];
+    let levelBtcStolen = 0;
+    let dialogText = '';
+    let dialogTimer = 0;
+    let cameraBlackout = 0;
+
+    // Cat (player)
+    const cat = {
+        x: 0, y: 0,
+        w: 20, h: 20,
+        speed: 0,
+        sneakSpeed: 55,
+        walkSpeed: 100,
+        sprintSpeed: 185,
+        facing: -Math.PI / 2,
+        sneaking: false,
+        sprinting: false,
+        hiding: false,
+        hidingObj: null,
+        hacking: false,
+        hackTarget: null,
+        hackProgress: 0,
+        lives: 9,
+        stepTimer: 0,
+        animTimer: 0,
+        tailWag: 0
+    };
+
+    // Input state
+    const keys = {};
+    let interactPressed = false;
+    let interactConsumed = false;
+
+    // =========================================================================
+    // === LEVEL PARSING =======================================================
+    // =========================================================================
+    function parseLevel(levelData) {
+        tiles = [];
+        collisionMap = [];
+        interactables = [];
+        fuseBoxes = [];
+
+        for (let y = 0; y < GRID_H; y++) {
+            tiles[y] = [];
+            collisionMap[y] = [];
+            for (let x = 0; x < GRID_W; x++) {
+                const ch = levelData.layout[y] ? levelData.layout[y][x] : 'W';
+                const t = CHAR_MAP[ch] !== undefined ? CHAR_MAP[ch] : T.WALL;
+                tiles[y][x] = t;
+                collisionMap[y][x] = BLOCKING.has(t);
+
+                if (t === T.SHELF) {
+                    interactables.push({ type: 'shelf', gx: x, gy: y, knocked: false });
+                }
+                if (t === T.DESK) {
+                    interactables.push({ type: 'desk', gx: x, gy: y });
+                }
+                if (t === T.FUSE) {
+                    fuseBoxes.push({ gx: x, gy: y, used: false });
+                }
+            }
+        }
+
+        // Set up objectives
+        objectives = levelData.objectives.map(o => ({...o, hacked: false}));
+
+        // Set up guards
+        guards = levelData.guards.map(g => ({
+            x: g.x * TILE + TILE / 2,
+            y: g.y * TILE + TILE / 2,
+            speed: g.speed * TILE,
+            facing: 0,
+            fov: g.fov,
+            viewDist: g.viewDist,
+            patrol: g.patrol.map(p => ({
+                x: p.x * TILE + TILE / 2,
+                y: p.y * TILE + TILE / 2,
+                wait: p.wait
+            })),
+            patrolIndex: 0,
+            waitTimer: 0,
+            alertState: AS.IDLE,
+            detectionMeter: 0,
+            lastKnownPos: null,
+            searchTimer: 0,
+            returnToPatrol: false,
+            animTimer: 0
+        }));
+
+        // Set up cameras
+        cameras = levelData.cameras.map(c => ({
+            x: c.gridX * TILE + TILE / 2,
+            y: c.gridY * TILE + TILE / 2,
+            facing: c.baseAngle,
+            baseAngle: c.baseAngle,
+            sweepRange: c.sweepRange,
+            sweepSpeed: c.sweepSpeed,
+            viewDist: c.viewDist,
+            fov: c.fov,
+            sweepDir: 1,
+            detectionMeter: 0,
+            disabled: false
+        }));
+
+        // Place cat
+        cat.x = levelData.playerStart.x * TILE + TILE / 2;
+        cat.y = levelData.playerStart.y * TILE + TILE / 2;
+        cat.hiding = false;
+        cat.hidingObj = null;
+        cat.hacking = false;
+        cat.hackTarget = null;
+        cat.hackProgress = 0;
+        cat.facing = -Math.PI / 2;
+
+        noiseEvents = [];
+        levelBtcStolen = 0;
+        cameraBlackout = 0;
+
+        // Show start dialogue
+        showDialog(levelData.startDialogue, 4);
+    }
+
+    // =========================================================================
+    // === STEALTH MECHANICS ===================================================
+    // =========================================================================
+    function tileAt(px, py) {
+        const gx = Math.floor(px / TILE);
+        const gy = Math.floor(py / TILE);
+        if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) return T.WALL;
+        return tiles[gy][gx];
+    }
+
+    function isBlocked(gx, gy) {
+        if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) return true;
+        return collisionMap[gy][gx];
+    }
+
+    function castRay(ox, oy, angle, maxDist) {
+        const step = TILE / 4;
+        const dx = Math.cos(angle) * step;
+        const dy = Math.sin(angle) * step;
+        let cx = ox, cy = oy;
+        let dist = 0;
+        while (dist < maxDist) {
+            cx += dx;
+            cy += dy;
+            dist += step;
+            const gx = Math.floor(cx / TILE);
+            const gy = Math.floor(cy / TILE);
+            if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H) return dist;
+            if (collisionMap[gy] && collisionMap[gy][gx]) return dist;
+        }
+        return maxDist;
+    }
+
+    function isPointVisible(obs, tx, ty) {
+        const dx = tx - obs.x;
+        const dy = ty - obs.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > obs.viewDist * TILE) return false;
+
+        let angleToTarget = Math.atan2(dy, dx);
+        let angleDiff = angleToTarget - obs.facing;
+        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+        if (Math.abs(angleDiff) > obs.fov / 2) return false;
+
+        // Raycast LOS
+        const steps = Math.ceil(dist / (TILE / 3));
+        for (let i = 1; i < steps; i++) {
+            const t = i / steps;
+            const cx = Math.floor((obs.x + dx * t) / TILE);
+            const cy = Math.floor((obs.y + dy * t) / TILE);
+            if (cx < 0 || cx >= GRID_W || cy < 0 || cy >= GRID_H) return false;
+            if (collisionMap[cy][cx]) return false;
+        }
+        return true;
+    }
+
+    function emitNoise(x, y, radius) {
+        noiseEvents.push({ x, y, radius: radius * TILE, maxRadius: radius * TILE, age: 0 });
+    }
+
+    function canGuardHearNoise(guard, noise) {
+        const dx = noise.x - guard.x;
+        const dy = noise.y - guard.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        return dist <= noise.radius;
+    }
+
+    // =========================================================================
+    // === GUARD AI ============================================================
+    // =========================================================================
+    function moveToward(entity, tx, ty, speed, dt) {
+        const dx = tx - entity.x;
+        const dy = ty - entity.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 2) return true; // arrived
+        const mx = (dx / dist) * speed * dt;
+        const my = (dy / dist) * speed * dt;
+
+        // Check collision before moving
+        const nx = entity.x + mx;
+        const ny = entity.y + my;
+        const gx = Math.floor(nx / TILE);
+        const gy = Math.floor(ny / TILE);
+        if (!isBlocked(gx, gy)) {
+            entity.x = nx;
+            entity.y = ny;
+            entity.facing = Math.atan2(dy, dx);
+        }
+        return false;
+    }
+
+    function updateGuard(guard, dt) {
+        // Update detection meter
+        const canSee = !cat.hiding && isPointVisible(guard, cat.x, cat.y);
+
+        if (canSee) {
+            const fillRate = cat.sneaking ? 35 : (cat.sprinting ? 90 : 60);
+            guard.detectionMeter = Math.min(100, guard.detectionMeter + fillRate * dt);
+
+            if (guard.detectionMeter >= 100) {
+                if (guard.alertState !== AS.ALERT) playDetectedSfx();
+                guard.alertState = AS.ALERT;
+                guard.lastKnownPos = { x: cat.x, y: cat.y };
+            } else if (guard.detectionMeter > 25 && guard.alertState === AS.IDLE) {
+                guard.alertState = AS.SUSPICIOUS;
+                playSuspiciousSfx();
+            }
+        } else {
+            guard.detectionMeter = Math.max(0, guard.detectionMeter - 25 * dt);
+            if (guard.detectionMeter === 0 && guard.alertState === AS.SUSPICIOUS) {
+                guard.alertState = AS.IDLE;
+            }
+        }
+
+        // React to noise
+        for (const noise of noiseEvents) {
+            if (noise.age < 0.5 && canGuardHearNoise(guard, noise)) {
+                if (guard.alertState === AS.IDLE) {
+                    guard.alertState = AS.SUSPICIOUS;
+                    guard.lastKnownPos = { x: noise.x, y: noise.y };
+                    playSuspiciousSfx();
+                } else if (guard.alertState === AS.SUSPICIOUS) {
+                    guard.lastKnownPos = { x: noise.x, y: noise.y };
+                }
+            }
+        }
+
+        // Behavior per state
+        switch (guard.alertState) {
+            case AS.IDLE: {
+                const wp = guard.patrol[guard.patrolIndex];
+                if (guard.waitTimer > 0) {
+                    guard.waitTimer -= dt;
+                    // Face along patrol direction while waiting
+                    const nextIdx = (guard.patrolIndex + 1) % guard.patrol.length;
+                    const nwp = guard.patrol[nextIdx];
+                    guard.facing = Math.atan2(nwp.y - wp.y, nwp.x - wp.x);
+                } else {
+                    const arrived = moveToward(guard, wp.x, wp.y, guard.speed, dt);
+                    if (arrived) {
+                        guard.waitTimer = wp.wait;
+                        guard.patrolIndex = (guard.patrolIndex + 1) % guard.patrol.length;
+                    }
+                }
+                break;
+            }
+            case AS.SUSPICIOUS: {
+                if (guard.lastKnownPos) {
+                    const arrived = moveToward(guard, guard.lastKnownPos.x, guard.lastKnownPos.y, guard.speed * 0.7, dt);
+                    if (arrived) {
+                        guard.searchTimer += dt;
+                        // Look around
+                        guard.facing += 1.5 * dt;
+                        if (guard.searchTimer > 3) {
+                            guard.alertState = AS.IDLE;
+                            guard.searchTimer = 0;
+                            guard.lastKnownPos = null;
+                        }
+                    }
+                } else {
+                    guard.alertState = AS.IDLE;
+                }
+                break;
+            }
+            case AS.ALERT: {
+                if (canSee) {
+                    guard.lastKnownPos = { x: cat.x, y: cat.y };
+                }
+                if (guard.lastKnownPos) {
+                    const arrived = moveToward(guard, guard.lastKnownPos.x, guard.lastKnownPos.y, guard.speed * 1.6, dt);
+                    // Check if guard catches cat
+                    const dx = cat.x - guard.x;
+                    const dy = cat.y - guard.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < TILE * 0.8) {
+                        catchCat();
+                        return;
+                    }
+                    if (arrived && !canSee) {
+                        guard.alertState = AS.SEARCHING;
+                        guard.searchTimer = 0;
+                    }
+                }
+                break;
+            }
+            case AS.SEARCHING: {
+                guard.searchTimer += dt;
+                guard.facing += 2 * dt;
+                if (guard.searchTimer > 4) {
+                    guard.alertState = AS.IDLE;
+                    guard.searchTimer = 0;
+                    guard.detectionMeter = 0;
+                    guard.lastKnownPos = null;
+                }
+                break;
+            }
+        }
+    }
+
+    function updateCamera(cam, dt) {
+        if (cam.disabled) return;
+
+        // Sweep
+        cam.facing += cam.sweepSpeed * cam.sweepDir * dt;
+        const minAngle = cam.baseAngle - cam.sweepRange / 2;
+        const maxAngle = cam.baseAngle + cam.sweepRange / 2;
+        if (cam.facing > maxAngle) { cam.facing = maxAngle; cam.sweepDir = -1; }
+        if (cam.facing < minAngle) { cam.facing = minAngle; cam.sweepDir = 1; }
+
+        // Detection
+        const canSee = !cat.hiding && isPointVisible(cam, cat.x, cat.y);
+        if (canSee) {
+            cam.detectionMeter = Math.min(100, cam.detectionMeter + 70 * dt);
+            if (cam.detectionMeter >= 100) {
+                // Camera triggers all guards to alert
+                guards.forEach(g => {
+                    if (g.alertState !== AS.ALERT) playDetectedSfx();
+                    g.alertState = AS.ALERT;
+                    g.lastKnownPos = { x: cat.x, y: cat.y };
+                    g.detectionMeter = 100;
+                });
+            }
+        } else {
+            cam.detectionMeter = Math.max(0, cam.detectionMeter - 20 * dt);
+        }
+    }
+
+    // =========================================================================
+    // === GAME LOGIC ==========================================================
+    // =========================================================================
+    function showDialog(text, duration) {
+        dialogText = text;
+        dialogTimer = duration || 3;
+        document.getElementById('dialogBox').style.display = 'block';
+        document.getElementById('dialogBox').textContent = text;
+    }
+
+    function hideDialog() {
+        dialogTimer = 0;
+        document.getElementById('dialogBox').style.display = 'none';
+    }
+
+    function catchCat() {
+        playCaughtSfx();
+        cat.lives--;
+        if (cat.lives <= 0) {
+            gameState = GS.GAME_OVER;
+            stopMusic();
+            document.getElementById('goTotalBtc').textContent = totalBtcStolen.toLocaleString();
+            document.getElementById('gameOverScreen').style.display = 'flex';
+        } else {
+            // Restart current level
+            parseLevel(levels[currentLevelIndex]);
+            updateHUD();
+            showDialog("*hisss* That was close! " + cat.lives + " lives remaining.", 2.5);
+        }
+    }
+
+    function checkLevelComplete() {
+        const allHacked = objectives.every(o => o.hacked);
+        if (!allHacked) return;
+
+        // Check if cat reached exit
+        const gx = Math.floor(cat.x / TILE);
+        const gy = Math.floor(cat.y / TILE);
+        if (tiles[gy] && tiles[gy][gx] === T.EXIT) {
+            completeLevelScreen();
+        }
+    }
+
+    function completeLevelScreen() {
+        gameState = GS.LEVEL_COMPLETE;
+        stopMusic();
+        const ld = levels[currentLevelIndex];
+
+        document.getElementById('lcRedditTitle').textContent = ld.redditTitle;
+        document.getElementById('lcRedditBody').textContent = ld.redditBody;
+        document.getElementById('lcStats').textContent =
+            'BTC Stolen This Level: ' + levelBtcStolen.toLocaleString() +
+            ' | Total: ' + totalBtcStolen.toLocaleString();
+        document.getElementById('levelComplete').style.display = 'flex';
+
+        playBtcSend();
+    }
+
+    function nextLevel() {
+        document.getElementById('levelComplete').style.display = 'none';
+        currentLevelIndex++;
+        if (currentLevelIndex >= levels.length) {
+            // Game complete!
+            gameState = GS.GAME_COMPLETE;
+            document.getElementById('gcTotalBtc').textContent = totalBtcStolen.toLocaleString();
+            // Rough BTC price estimate for comedy
+            document.getElementById('gcDollarValue').textContent = '$' + (totalBtcStolen * 43000).toLocaleString();
+            document.getElementById('gameComplete').style.display = 'flex';
+        } else {
+            gameState = GS.PLAYING;
+            parseLevel(levels[currentLevelIndex]);
+            updateHUD();
+            playStealthMusic();
+        }
+    }
+
+    function updateHUD() {
+        document.getElementById('btcDisplay').textContent = totalBtcStolen.toLocaleString();
+        document.getElementById('levelDisplay').textContent = levels[currentLevelIndex].name;
+        document.getElementById('yearDisplay').textContent = levels[currentLevelIndex].year;
+        document.getElementById('livesDisplay').textContent = cat.lives;
+        // Mobile HUD mirrors
+        const bm = document.getElementById('btcDisplayM');
+        if (bm) {
+            bm.textContent = totalBtcStolen.toLocaleString();
+            document.getElementById('levelDisplayM').textContent = 'Lv' + (currentLevelIndex + 1);
+            document.getElementById('yearDisplayM').textContent = levels[currentLevelIndex].year;
+            document.getElementById('livesDisplayM').textContent = cat.lives;
+        }
+    }
+
+    function getMaxDetection() {
+        let max = 0;
+        guards.forEach(g => { if (g.detectionMeter > max) max = g.detectionMeter; });
+        cameras.forEach(c => { if (!c.disabled && c.detectionMeter > max) max = c.detectionMeter; });
+        return max;
+    }
+
+    function generateBtcAddress() {
+        const chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+        let addr = '1';
+        for (let i = 0; i < 33; i++) addr += chars[Math.floor(Math.random() * chars.length)];
+        return addr;
+    }
+
+    const hackFlavors = [
+        '"Tibanne is just sitting there"',
+        '"The cat appears to be napping on the keyboard"',
+        '"Purring intensifies"',
+        '"Cat butt on Enter key detected"',
+        '"Tibanne kneads the spacebar aggressively"',
+        '"Mark would be proud... actually no"',
+        '"This is good for Bitcoin"',
+        '"SFYL (Sorry For Your Loss)"',
+    ];
+
+    // =========================================================================
+    // === UPDATE ==============================================================
+    // =========================================================================
+    let lastTime = 0;
+
+    function update(timestamp) {
+        const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+        lastTime = timestamp;
+
+        if (gameState !== GS.PLAYING && gameState !== GS.HACKING) return;
+
+        // Dialog timer
+        if (dialogTimer > 0) {
+            dialogTimer -= dt;
+            if (dialogTimer <= 0) hideDialog();
+        }
+
+        // Camera blackout timer
+        if (cameraBlackout > 0) {
+            cameraBlackout -= dt;
+            if (cameraBlackout <= 0) {
+                cameras.forEach(c => c.disabled = false);
+            }
+        }
+
+        // Noise decay
+        noiseEvents.forEach(n => n.age += dt);
+        noiseEvents = noiseEvents.filter(n => n.age < 1.5);
+
+        // Update alert bar
+        const maxDet = getMaxDetection();
+        const alertBar = document.getElementById('alertBar');
+        const alertFill = document.getElementById('alertFill');
+        if (maxDet > 0) {
+            alertBar.style.display = 'block';
+            alertFill.style.width = maxDet + '%';
+            if (maxDet > 80) alertFill.style.background = '#ff0000';
+            else if (maxDet > 50) alertFill.style.background = '#ff8800';
+            else if (maxDet > 25) alertFill.style.background = '#ffcc00';
+            else alertFill.style.background = '#4ade80';
+        } else {
+            alertBar.style.display = 'none';
+        }
+
+        // Music switching
+        const anyAlert = guards.some(g => g.alertState === AS.ALERT);
+        if (anyAlert) {
+            playAlertMusic();
+        } else if (currentMusicType === 'alert') {
+            playStealthMusic();
+        }
+
+        // === HACKING STATE ===
+        if (gameState === GS.HACKING) {
+            cat.hackProgress += 30 * dt; // ~3.3 seconds to hack
+            playHackTyping();
+            document.getElementById('hackBarFill').style.width = cat.hackProgress + '%';
+
+            // Noise while hacking
+            cat.stepTimer += dt;
+            if (cat.stepTimer > 0.5) {
+                emitNoise(cat.x, cat.y, 3);
+                cat.stepTimer = 0;
+            }
+
+            if (cat.hackProgress >= 100) {
+                // Complete hack
+                cat.hackTarget.hacked = true;
+                const btc = cat.hackTarget.btc;
+                levelBtcStolen += btc;
+                totalBtcStolen += btc;
+                updateHUD();
+                playBtcSend();
+
+                cat.hacking = false;
+                cat.hackTarget = null;
+                cat.hackProgress = 0;
+                gameState = GS.PLAYING;
+                document.getElementById('hackOverlay').style.display = 'none';
+
+                const allDone = objectives.every(o => o.hacked);
+                if (allDone) {
+                    showDialog("All keyboards hacked! Get to the exit (X)!", 3);
+                } else {
+                    const remaining = objectives.filter(o => !o.hacked).length;
+                    showDialog(btc.toLocaleString() + " BTC sent! " + remaining + " keyboard" + (remaining > 1 ? 's' : '') + " remaining.", 2.5);
+                }
+            }
+
+            // Still update guards/cameras during hacking
+            guards.forEach(g => updateGuard(g, dt));
+            cameras.forEach(c => updateCamera(c, dt));
+            return;
+        }
+
+        // === PLAYING STATE: Cat movement ===
+        let mx = 0, my = 0;
+        if (keys['ArrowLeft'] || keys['KeyA']) mx -= 1;
+        if (keys['ArrowRight'] || keys['KeyD']) mx += 1;
+        if (keys['ArrowUp'] || keys['KeyW']) my -= 1;
+        if (keys['ArrowDown'] || keys['KeyS']) my += 1;
+
+        cat.sneaking = keys['ShiftLeft'] || keys['ShiftRight'];
+        cat.sprinting = keys['Space'] && !cat.sneaking;
+
+        const isMoving = mx !== 0 || my !== 0;
+
+        if (cat.hiding) {
+            // Can't move while hiding, only unhide with E
+            if (interactPressed && !interactConsumed) {
+                cat.hiding = false;
+                cat.hidingObj = null;
+                interactConsumed = true;
+            }
+        } else if (isMoving) {
+            // Normalize diagonal
+            if (mx !== 0 && my !== 0) {
+                mx *= 0.707;
+                my *= 0.707;
+            }
+
+            const spd = cat.sprinting ? cat.sprintSpeed : (cat.sneaking ? cat.sneakSpeed : cat.walkSpeed);
+            const newX = cat.x + mx * spd * dt;
+            const newY = cat.y + my * spd * dt;
+
+            // Collision check (check corners of cat hitbox)
+            const hw = cat.w / 2 - 2;
+            const hh = cat.h / 2 - 2;
+
+            // X axis
+            let canMoveX = true;
+            const testX = newX;
+            if (isBlocked(Math.floor((testX - hw) / TILE), Math.floor((cat.y - hh) / TILE)) ||
+                isBlocked(Math.floor((testX + hw) / TILE), Math.floor((cat.y - hh) / TILE)) ||
+                isBlocked(Math.floor((testX - hw) / TILE), Math.floor((cat.y + hh) / TILE)) ||
+                isBlocked(Math.floor((testX + hw) / TILE), Math.floor((cat.y + hh) / TILE))) {
+                canMoveX = false;
+            }
+
+            // Y axis
+            let canMoveY = true;
+            const testY = newY;
+            if (isBlocked(Math.floor((cat.x - hw) / TILE), Math.floor((testY - hh) / TILE)) ||
+                isBlocked(Math.floor((cat.x + hw) / TILE), Math.floor((testY - hh) / TILE)) ||
+                isBlocked(Math.floor((cat.x - hw) / TILE), Math.floor((testY + hh) / TILE)) ||
+                isBlocked(Math.floor((cat.x + hw) / TILE), Math.floor((testY + hh) / TILE))) {
+                canMoveY = false;
+            }
+
+            if (canMoveX) cat.x = testX;
+            if (canMoveY) cat.y = testY;
+
+            cat.facing = Math.atan2(my, mx);
+
+            // Step sounds + noise
+            cat.stepTimer += dt;
+            const stepInterval = cat.sprinting ? 0.18 : (cat.sneaking ? 0.4 : 0.25);
+            if (cat.stepTimer > stepInterval) {
+                cat.stepTimer = 0;
+                if (cat.sprinting) {
+                    playSprintStep();
+                    emitNoise(cat.x, cat.y, 4);
+                } else if (cat.sneaking) {
+                    playSneakStep();
+                    emitNoise(cat.x, cat.y, 1);
+                } else {
+                    playWalkStep();
+                    emitNoise(cat.x, cat.y, 2.5);
+                }
+            }
+        }
+
+        // === INTERACT (E key) ===
+        if (interactPressed && !interactConsumed && !cat.hiding) {
+            interactConsumed = true;
+            const catGX = Math.floor(cat.x / TILE);
+            const catGY = Math.floor(cat.y / TILE);
+
+            // Check for keyboard objective nearby
+            let foundKeyboard = false;
+            for (const obj of objectives) {
+                if (obj.hacked) continue;
+                const dx = Math.abs(obj.gridX - catGX);
+                const dy = Math.abs(obj.gridY - catGY);
+                if (dx <= 1 && dy <= 1) {
+                    // Start hacking
+                    cat.hacking = true;
+                    cat.hackTarget = obj;
+                    cat.hackProgress = 0;
+                    cat.stepTimer = 0;
+                    gameState = GS.HACKING;
+
+                    const overlay = document.getElementById('hackOverlay');
+                    overlay.style.display = 'block';
+                    document.getElementById('hackBarFill').style.width = '0%';
+                    document.getElementById('hackAddr').textContent = generateBtcAddress();
+                    document.getElementById('hackAmount').textContent = obj.btc.toLocaleString();
+                    document.getElementById('hackFlavor').textContent =
+                        hackFlavors[Math.floor(Math.random() * hackFlavors.length)];
+                    foundKeyboard = true;
+                    break;
+                }
+            }
+
+            // Check for shelf (distraction)
+            if (!foundKeyboard) {
+                for (const ia of interactables) {
+                    if (ia.type !== 'shelf' || ia.knocked) continue;
+                    const dx = Math.abs(ia.gx - catGX);
+                    const dy = Math.abs(ia.gy - catGY);
+                    if (dx <= 1 && dy <= 1) {
+                        ia.knocked = true;
+                        playKnockSfx();
+                        emitNoise(ia.gx * TILE + TILE/2, ia.gy * TILE + TILE/2, 6);
+                        showDialog("*CRASH* Tibanne knocks everything off the shelf!", 2);
+                        break;
+                    }
+                }
+            }
+
+            // Check for desk (hiding)
+            if (!foundKeyboard) {
+                for (const ia of interactables) {
+                    if (ia.type !== 'desk') continue;
+                    const dx = Math.abs(ia.gx - catGX);
+                    const dy = Math.abs(ia.gy - catGY);
+                    if (dx <= 1 && dy <= 1) {
+                        cat.hiding = true;
+                        cat.hidingObj = ia;
+                        showDialog("*hides under desk* ...they can't see me here", 2);
+                        break;
+                    }
+                }
+            }
+
+            // Check for fuse box
+            if (!foundKeyboard) {
+                for (const fb of fuseBoxes) {
+                    if (fb.used) continue;
+                    const dx = Math.abs(fb.gx - catGX);
+                    const dy = Math.abs(fb.gy - catGY);
+                    if (dx <= 1 && dy <= 1) {
+                        fb.used = true;
+                        cameraBlackout = 8;
+                        cameras.forEach(c => c.disabled = true);
+                        playKnockSfx();
+                        showDialog("*flick* Cameras disabled for 8 seconds!", 2.5);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Update guards
+        guards.forEach(g => updateGuard(g, dt));
+
+        // Update cameras
+        cameras.forEach(c => updateCamera(c, dt));
+
+        // Check level complete
+        checkLevelComplete();
+
+        // Animation
+        cat.animTimer += dt;
+        cat.tailWag = Math.sin(cat.animTimer * 5) * 4;
+    }
+
+    // =========================================================================
+    // === DRAWING =============================================================
+    // =========================================================================
+
+    // Colors
+    const COL = {
+        floor: '#222238',
+        floorLine: '#2c2c52',
+        wall: '#3a3a5e',
+        wallTop: '#4d4d7e',
+        desk: '#5a4530',
+        deskTop: '#6c5540',
+        keyboard: '#eee',
+        keyboardGlow: '#0f0',
+        server: '#243848',
+        serverLed: '#0f0',
+        shelf: '#4a3518',
+        shelfKnocked: '#3a2a14',
+        chair: '#444',
+        vent: '#666',
+        door: '#555',
+        exit: '#f7931a',
+        fuse: '#777',
+    };
+
+    function drawTiles() {
+        for (let y = 0; y < GRID_H; y++) {
+            for (let x = 0; x < GRID_W; x++) {
+                const t = tiles[y][x];
+                const px = x * TILE;
+                const py = y * TILE + HUD_H;
+
+                switch (t) {
+                    case T.FLOOR:
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        // Subtle grid
+                        ctx.strokeStyle = COL.floorLine;
+                        ctx.lineWidth = 0.5;
+                        ctx.strokeRect(px, py, TILE, TILE);
+                        break;
+
+                    case T.WALL:
+                        ctx.fillStyle = COL.wall;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.fillStyle = COL.wallTop;
+                        ctx.fillRect(px, py, TILE, 4);
+                        ctx.fillRect(px, py, 4, TILE);
+                        break;
+
+                    case T.DESK:
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.strokeStyle = COL.floorLine;
+                        ctx.lineWidth = 0.5;
+                        ctx.strokeRect(px, py, TILE, TILE);
+                        // Desk bottom shadow
+                        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                        ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+                        ctx.fillStyle = COL.desk;
+                        ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+                        break;
+
+                    case T.KEYBOARD:
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        // Check if this is an objective
+                        const isObj = objectives.find(o => o.gridX === x && o.gridY === y);
+                        if (isObj && !isObj.hacked) {
+                            // Glowing keyboard
+                            ctx.shadowColor = COL.keyboardGlow;
+                            ctx.shadowBlur = 8;
+                            ctx.fillStyle = COL.keyboard;
+                            ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
+                            // Keys
+                            ctx.fillStyle = '#bbb';
+                            for (let kx = 0; kx < 4; kx++) {
+                                for (let ky = 0; ky < 2; ky++) {
+                                    ctx.fillRect(px + 6 + kx * 6, py + 10 + ky * 6, 4, 4);
+                                }
+                            }
+                            ctx.shadowBlur = 0;
+                        } else if (isObj && isObj.hacked) {
+                            ctx.fillStyle = '#555';
+                            ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
+                            ctx.fillStyle = '#333';
+                            ctx.font = '8px monospace';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('DONE', px + TILE/2, py + TILE/2 + 3);
+                        } else {
+                            ctx.fillStyle = '#888';
+                            ctx.fillRect(px + 4, py + 8, TILE - 8, TILE - 16);
+                        }
+                        break;
+
+                    case T.SERVER:
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.fillStyle = COL.server;
+                        ctx.fillRect(px + 2, py + 1, TILE - 4, TILE - 2);
+                        // LEDs
+                        const ledOn = Math.random() > 0.3;
+                        ctx.fillStyle = ledOn ? COL.serverLed : '#333';
+                        ctx.fillRect(px + 5, py + 5, 3, 3);
+                        ctx.fillStyle = Math.random() > 0.5 ? '#f00' : '#333';
+                        ctx.fillRect(px + 5, py + 12, 3, 3);
+                        ctx.fillStyle = ledOn ? '#ff0' : '#333';
+                        ctx.fillRect(px + 5, py + 19, 3, 3);
+                        break;
+
+                    case T.SHELF: {
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.strokeStyle = COL.floorLine;
+                        ctx.lineWidth = 0.5;
+                        ctx.strokeRect(px, py, TILE, TILE);
+                        const ia = interactables.find(i => i.type === 'shelf' && i.gx === x && i.gy === y);
+                        if (ia && ia.knocked) {
+                            ctx.fillStyle = COL.shelfKnocked;
+                            ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+                            // Scattered items
+                            ctx.fillStyle = '#665';
+                            ctx.fillRect(px + 3, py + 10, 8, 4);
+                            ctx.fillRect(px + 18, py + 5, 6, 5);
+                            ctx.fillRect(px + 10, py + 20, 10, 3);
+                        } else {
+                            ctx.fillStyle = COL.shelf;
+                            ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+                            // Books/items on shelf
+                            const bookColors = ['#a44', '#4a4', '#44a', '#aa4'];
+                            for (let b = 0; b < 4; b++) {
+                                ctx.fillStyle = bookColors[b];
+                                ctx.fillRect(px + 5 + b * 6, py + 6, 5, 20);
+                            }
+                        }
+                        break;
+                    }
+
+                    case T.CHAIR:
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.strokeStyle = COL.floorLine;
+                        ctx.lineWidth = 0.5;
+                        ctx.strokeRect(px, py, TILE, TILE);
+                        ctx.fillStyle = COL.chair;
+                        ctx.beginPath();
+                        ctx.arc(px + TILE/2, py + TILE/2, 10, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.fillStyle = '#444';
+                        ctx.beginPath();
+                        ctx.arc(px + TILE/2, py + TILE/2, 6, 0, Math.PI * 2);
+                        ctx.fill();
+                        break;
+
+                    case T.VENT:
+                        ctx.fillStyle = '#333';
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.fillStyle = COL.vent;
+                        ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+                        // Vent lines
+                        ctx.strokeStyle = '#444';
+                        ctx.lineWidth = 2;
+                        for (let vl = 0; vl < 4; vl++) {
+                            ctx.beginPath();
+                            ctx.moveTo(px + 4, py + 6 + vl * 7);
+                            ctx.lineTo(px + TILE - 4, py + 6 + vl * 7);
+                            ctx.stroke();
+                        }
+                        break;
+
+                    case T.DOOR:
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.fillStyle = COL.door;
+                        ctx.fillRect(px + 4, py, TILE - 8, TILE);
+                        break;
+
+                    case T.EXIT: {
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        const allDone = objectives.every(o => o.hacked);
+                        if (allDone) {
+                            const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+                            ctx.fillStyle = `rgba(247, 147, 26, ${pulse})`;
+                            ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+                            ctx.fillStyle = '#000';
+                            ctx.font = 'bold 10px monospace';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('EXIT', px + TILE/2, py + TILE/2 + 4);
+                        } else {
+                            ctx.strokeStyle = '#555';
+                            ctx.lineWidth = 1;
+                            ctx.strokeRect(px + 2, py + 2, TILE - 4, TILE - 4);
+                            ctx.fillStyle = '#444';
+                            ctx.font = '8px monospace';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('EXIT', px + TILE/2, py + TILE/2 + 3);
+                        }
+                        break;
+                    }
+
+                    case T.FUSE: {
+                        ctx.fillStyle = COL.floor;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        const fb = fuseBoxes.find(f => f.gx === x && f.gy === y);
+                        if (fb && fb.used) {
+                            ctx.fillStyle = '#333';
+                        } else {
+                            ctx.fillStyle = COL.fuse;
+                        }
+                        ctx.fillRect(px + 4, py + 2, TILE - 8, TILE - 4);
+                        ctx.strokeStyle = '#888';
+                        ctx.lineWidth = 1;
+                        ctx.strokeRect(px + 4, py + 2, TILE - 8, TILE - 4);
+                        // Lightning bolt icon
+                        if (!fb || !fb.used) {
+                            ctx.fillStyle = '#ff0';
+                            ctx.font = 'bold 14px sans-serif';
+                            ctx.textAlign = 'center';
+                            ctx.fillText('\u26A1', px + TILE/2, py + TILE/2 + 5);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    function drawDeskTops() {
+        // Second pass: draw desk tops over entities for hiding effect
+        for (const ia of interactables) {
+            if (ia.type !== 'desk') continue;
+            const px = ia.gx * TILE;
+            const py = ia.gy * TILE + HUD_H;
+            // Semi-transparent desk top if cat is hiding under this desk
+            if (cat.hiding && cat.hidingObj === ia) {
+                ctx.fillStyle = 'rgba(92, 69, 48, 0.6)';
+            } else {
+                ctx.fillStyle = COL.deskTop;
+            }
+            ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+        }
+    }
+
+    function drawVisionCone(entity, color) {
+        ctx.save();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = color;
+
+        const numRays = 20;
+        ctx.beginPath();
+        ctx.moveTo(entity.x, entity.y + HUD_H);
+        for (let i = 0; i <= numRays; i++) {
+            const angle = entity.facing - entity.fov / 2 + (entity.fov / numRays) * i;
+            const hitDist = castRay(entity.x, entity.y, angle, entity.viewDist * TILE);
+            ctx.lineTo(
+                entity.x + Math.cos(angle) * hitDist,
+                entity.y + Math.sin(angle) * hitDist + HUD_H
+            );
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
+
+    function drawGuard(g) {
+        // Vision cone
+        let coneColor = '#ffff00';
+        if (g.alertState === AS.SUSPICIOUS) coneColor = '#ff8800';
+        if (g.alertState === AS.ALERT) coneColor = '#ff0000';
+        if (g.alertState === AS.SEARCHING) coneColor = '#ff4400';
+        drawVisionCone(g, coneColor);
+
+        const gx = g.x;
+        const gy = g.y + HUD_H;
+
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(g.facing);
+
+        // Body
+        ctx.fillStyle = '#1a1a3e';
+        ctx.fillRect(-8, -11, 16, 22);
+
+        // Head
+        ctx.fillStyle = '#FFDAB9';
+        ctx.beginPath();
+        ctx.arc(0, -8, 6, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Cap
+        ctx.fillStyle = '#1a1a3e';
+        ctx.fillRect(-6, -14, 12, 5);
+
+        // Flashlight
+        ctx.fillStyle = '#FFD700';
+        ctx.fillRect(7, -3, 5, 3);
+
+        ctx.restore();
+
+        // Alert indicators
+        if (g.alertState === AS.SUSPICIOUS || g.alertState === AS.SEARCHING) {
+            ctx.fillStyle = '#FFD700';
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('?', gx, gy - 18);
+        } else if (g.alertState === AS.ALERT) {
+            ctx.fillStyle = '#FF0000';
+            ctx.font = 'bold 18px Arial';
+            ctx.textAlign = 'center';
+            const blink = Math.sin(Date.now() / 100) > 0;
+            if (blink) ctx.fillText('!', gx, gy - 18);
+        }
+
+        // Detection meter bar above guard
+        if (g.detectionMeter > 0 && g.detectionMeter < 100) {
+            ctx.fillStyle = 'rgba(0,0,0,0.5)';
+            ctx.fillRect(gx - 12, gy - 24, 24, 3);
+            ctx.fillStyle = g.detectionMeter > 60 ? '#ff0000' : '#ffcc00';
+            ctx.fillRect(gx - 12, gy - 24, 24 * g.detectionMeter / 100, 3);
+        }
+    }
+
+    function drawCamera(cam) {
+        if (cam.disabled) {
+            // Disabled camera - dim
+            ctx.fillStyle = '#333';
+            ctx.beginPath();
+            ctx.arc(cam.x, cam.y + HUD_H, 5, 0, Math.PI * 2);
+            ctx.fill();
+            return;
+        }
+
+        // Vision cone
+        let coneColor = cam.detectionMeter > 50 ? '#ff4400' : '#4488ff';
+        drawVisionCone(cam, coneColor);
+
+        // Camera body
+        ctx.fillStyle = '#666';
+        ctx.beginPath();
+        ctx.arc(cam.x, cam.y + HUD_H, 5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Camera lens direction
+        ctx.strokeStyle = '#f00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cam.x, cam.y + HUD_H);
+        ctx.lineTo(cam.x + Math.cos(cam.facing) * 10, cam.y + Math.sin(cam.facing) * 10 + HUD_H);
+        ctx.stroke();
+
+        // Blinking red light
+        if (Math.sin(Date.now() / 500) > 0) {
+            ctx.fillStyle = '#f00';
+            ctx.beginPath();
+            ctx.arc(cam.x, cam.y + HUD_H - 6, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    function drawCat() {
+        const cx = cat.x;
+        const cy = cat.y + HUD_H;
+
+        ctx.save();
+
+        if (cat.hiding) {
+            ctx.globalAlpha = 0.35;
+        }
+
+        ctx.translate(cx, cy);
+        ctx.rotate(cat.facing + Math.PI / 2); // cat faces "up" in sprite
+
+        // Body (oval) - orange/white calico
+        const bodyW = cat.sneaking ? 8 : 10;
+        const bodyH = cat.sneaking ? 11 : 13;
+
+        ctx.fillStyle = '#F5A623';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, bodyW, bodyH, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#C47F17';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // White belly patch
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.ellipse(0, 2, bodyW * 0.5, bodyH * 0.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Orange patches
+        ctx.fillStyle = '#E88B10';
+        ctx.beginPath();
+        ctx.ellipse(-4, -5, 3, 2.5, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(4, -2, 2.5, 3, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Ears
+        ctx.fillStyle = '#F5A623';
+        ctx.beginPath();
+        ctx.moveTo(-5, -11); ctx.lineTo(-2, -17); ctx.lineTo(1, -11);
+        ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(1, -11); ctx.lineTo(4, -17); ctx.lineTo(7, -11);
+        ctx.fill();
+        ctx.stroke();
+
+        // Inner ears
+        ctx.fillStyle = '#FFB6C1';
+        ctx.beginPath();
+        ctx.moveTo(-3.5, -12); ctx.lineTo(-2, -15); ctx.lineTo(-0.5, -12);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(2.5, -12); ctx.lineTo(4, -15); ctx.lineTo(5.5, -12);
+        ctx.fill();
+
+        // Eyes
+        ctx.fillStyle = '#2E8B57';
+        ctx.beginPath();
+        ctx.arc(-2.5, -8, 1.8, 0, Math.PI * 2);
+        ctx.arc(3.5, -8, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Pupils
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(-2.5, -8, 0.8, 0, Math.PI * 2);
+        ctx.arc(3.5, -8, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Nose
+        ctx.fillStyle = '#FFB6C1';
+        ctx.beginPath();
+        ctx.arc(0.5, -5.5, 1, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Whiskers
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(-3, -6); ctx.lineTo(-10, -8);
+        ctx.moveTo(-3, -5); ctx.lineTo(-10, -5);
+        ctx.moveTo(4, -6); ctx.lineTo(11, -8);
+        ctx.moveTo(4, -5); ctx.lineTo(11, -5);
+        ctx.stroke();
+
+        // Tail
+        ctx.strokeStyle = '#F5A623';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, bodyH - 1);
+        ctx.quadraticCurveTo(cat.tailWag, bodyH + 8, cat.tailWag * 1.5, bodyH + 12);
+        ctx.stroke();
+
+        // White tail tip
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cat.tailWag * 1.2, bodyH + 9);
+        ctx.quadraticCurveTo(cat.tailWag * 1.5, bodyH + 11, cat.tailWag * 1.5, bodyH + 12);
+        ctx.stroke();
+
+        ctx.restore();
+
+        // Sprint motion lines
+        if (cat.sprinting && !cat.hiding) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+            ctx.lineWidth = 1;
+            const bx = cx - Math.cos(cat.facing) * 15;
+            const by = cy - Math.sin(cat.facing) * 15;
+            for (let i = 0; i < 3; i++) {
+                const ox = (Math.random() - 0.5) * 10;
+                const oy = (Math.random() - 0.5) * 10;
+                ctx.beginPath();
+                ctx.moveTo(bx + ox, by + oy);
+                ctx.lineTo(bx + ox - Math.cos(cat.facing) * 8, by + oy - Math.sin(cat.facing) * 8);
+                ctx.stroke();
+            }
+        }
+
+        // Sneak indicator
+        if (cat.sneaking && !cat.hiding) {
+            ctx.fillStyle = 'rgba(100, 255, 100, 0.5)';
+            ctx.font = '9px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText('sneaking', cx, cy - 16);
+        }
+    }
+
+    function drawNoiseRings() {
+        for (const n of noiseEvents) {
+            const alpha = Math.max(0, 0.3 - n.age * 0.3);
+            const r = n.maxRadius * (0.3 + n.age * 0.5);
+            ctx.strokeStyle = `rgba(255, 255, 100, ${alpha})`;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(n.x, n.y + HUD_H, r, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+    }
+
+    function drawLightingOverlay() {
+        ctx.fillStyle = 'rgba(0, 0, 15, 0.4)';
+        ctx.fillRect(0, HUD_H, CANVAS_W, GRID_H * TILE);
+
+        // Light around monitors/keyboards
+        ctx.globalCompositeOperation = 'destination-out';
+        for (const obj of objectives) {
+            if (obj.hacked) continue;
+            const ox = obj.gridX * TILE + TILE / 2;
+            const oy = obj.gridY * TILE + TILE / 2 + HUD_H;
+            const grad = ctx.createRadialGradient(ox, oy, 0, ox, oy, TILE * 2);
+            grad.addColorStop(0, 'rgba(0,0,0,0.4)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(ox, oy, TILE * 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Light around guards (flashlights)
+        for (const g of guards) {
+            const grad = ctx.createRadialGradient(g.x, g.y + HUD_H, 0, g.x, g.y + HUD_H, TILE * 3);
+            grad.addColorStop(0, 'rgba(0,0,0,0.3)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(g.x, g.y + HUD_H, TILE * 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function drawInteractPrompts() {
+        if (cat.hiding || cat.hacking) return;
+        const catGX = Math.floor(cat.x / TILE);
+        const catGY = Math.floor(cat.y / TILE);
+
+        // Check for nearby interactables
+        for (const obj of objectives) {
+            if (obj.hacked) continue;
+            if (Math.abs(obj.gridX - catGX) <= 1 && Math.abs(obj.gridY - catGY) <= 1) {
+                ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+                ctx.font = 'bold 10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('[E] HACK', obj.gridX * TILE + TILE/2, obj.gridY * TILE + HUD_H - 4);
+            }
+        }
+
+        for (const ia of interactables) {
+            if (Math.abs(ia.gx - catGX) <= 1 && Math.abs(ia.gy - catGY) <= 1) {
+                if (ia.type === 'shelf' && !ia.knocked) {
+                    ctx.fillStyle = 'rgba(255, 200, 0, 0.7)';
+                    ctx.font = 'bold 9px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('[E] KNOCK', ia.gx * TILE + TILE/2, ia.gy * TILE + HUD_H - 4);
+                }
+                if (ia.type === 'desk') {
+                    ctx.fillStyle = 'rgba(100, 150, 255, 0.5)';
+                    ctx.font = 'bold 9px monospace';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('[E] HIDE', ia.gx * TILE + TILE/2, ia.gy * TILE + HUD_H - 4);
+                }
+            }
+        }
+
+        for (const fb of fuseBoxes) {
+            if (fb.used) continue;
+            if (Math.abs(fb.gx - catGX) <= 1 && Math.abs(fb.gy - catGY) <= 1) {
+                ctx.fillStyle = 'rgba(255, 255, 0, 0.7)';
+                ctx.font = 'bold 9px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('[E] FUSE', fb.gx * TILE + TILE/2, fb.gy * TILE + HUD_H - 4);
+            }
+        }
+    }
+
+    function drawCameraBlackoutTimer() {
+        if (cameraBlackout > 0) {
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.6)';
+            ctx.font = 'bold 11px monospace';
+            ctx.textAlign = 'right';
+            ctx.fillText('CAMS OFF: ' + Math.ceil(cameraBlackout) + 's', CANVAS_W - 10, HUD_H + 16);
+        }
+    }
+
+    function drawObjectiveTracker() {
+        const total = objectives.length;
+        const done = objectives.filter(o => o.hacked).length;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('Keyboards: ' + done + '/' + total, 8, HUD_H + 30);
+    }
+
+    // =========================================================================
+    // === MAIN DRAW ===========================================================
+    // =========================================================================
+    function draw() {
+        ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
+        // Background
+        ctx.fillStyle = '#121220';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        if (gameState === GS.MENU) {
+            // Just dark background on menu
+            return;
+        }
+
+        if (gameState === GS.GAME_OVER || gameState === GS.GAME_COMPLETE) return;
+
+        // Draw tiles (bottom pass)
+        drawTiles();
+
+        // Draw noise rings
+        drawNoiseRings();
+
+        // Draw cameras
+        cameras.forEach(drawCamera);
+
+        // Draw guards
+        guards.forEach(drawGuard);
+
+        // Draw cat
+        drawCat();
+
+        // Draw desk tops (over entities for hiding)
+        drawDeskTops();
+
+        // Lighting overlay
+        drawLightingOverlay();
+
+        // Interact prompts
+        drawInteractPrompts();
+
+        // Camera blackout timer
+        drawCameraBlackoutTimer();
+
+        // Objective tracker
+        drawObjectiveTracker();
+    }
+
+    // =========================================================================
+    // === GAME LOOP ===========================================================
+    // =========================================================================
+    function gameLoop(timestamp) {
+        update(timestamp);
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // =========================================================================
+    // === INPUT ===============================================================
+    // =========================================================================
+    document.addEventListener('keydown', (e) => {
+        keys[e.code] = true;
+        if (e.code === 'KeyE') {
+            interactPressed = true;
+            interactConsumed = false;
+        }
+        if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+            e.preventDefault();
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        keys[e.code] = false;
+        if (e.code === 'KeyE') {
+            interactPressed = false;
+            interactConsumed = false;
+        }
+    });
+
+    // =========================================================================
+    // === TOUCH CONTROLS =====================================================
+    // =========================================================================
+    (function initTouchControls() {
+        const joystickZone = document.getElementById('touchJoystickZone');
+        const knob = document.getElementById('touchJoystickKnob');
+        const btnSneak = document.getElementById('btnSneak');
+        const btnSprint = document.getElementById('btnSprint');
+        const btnInteract = document.getElementById('btnInteract');
+        if (!joystickZone) return;
+
+        let joystickActive = false;
+        let joystickId = null;
+        const centerX = 70, centerY = 70;
+        const maxDist = 40;
+        const deadZone = 8;
+
+        function resetKnob() {
+            knob.style.left = '45px';
+            knob.style.top = '45px';
+            keys['KeyW'] = false;
+            keys['KeyS'] = false;
+            keys['KeyA'] = false;
+            keys['KeyD'] = false;
+        }
+
+        joystickZone.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            const t = e.changedTouches[0];
+            joystickId = t.identifier;
+            joystickActive = true;
+        }, { passive: false });
+
+        joystickZone.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                if (t.identifier !== joystickId) continue;
+                const rect = joystickZone.getBoundingClientRect();
+                let dx = t.clientX - rect.left - centerX;
+                let dy = t.clientY - rect.top - centerY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > maxDist) {
+                    dx = dx / dist * maxDist;
+                    dy = dy / dist * maxDist;
+                }
+                knob.style.left = (45 + dx) + 'px';
+                knob.style.top = (45 + dy) + 'px';
+
+                keys['KeyA'] = dx < -deadZone;
+                keys['KeyD'] = dx > deadZone;
+                keys['KeyW'] = dy < -deadZone;
+                keys['KeyS'] = dy > deadZone;
+            }
+        }, { passive: false });
+
+        joystickZone.addEventListener('touchend', (e) => {
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                if (e.changedTouches[i].identifier === joystickId) {
+                    joystickActive = false;
+                    joystickId = null;
+                    resetKnob();
+                }
+            }
+        });
+
+        joystickZone.addEventListener('touchcancel', () => {
+            joystickActive = false;
+            joystickId = null;
+            resetKnob();
+        });
+
+        // Sneak button (hold)
+        btnSneak.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            keys['ShiftLeft'] = true;
+            btnSneak.classList.add('active');
+        }, { passive: false });
+        btnSneak.addEventListener('touchend', (e) => {
+            keys['ShiftLeft'] = false;
+            btnSneak.classList.remove('active');
+        });
+        btnSneak.addEventListener('touchcancel', () => {
+            keys['ShiftLeft'] = false;
+            btnSneak.classList.remove('active');
+        });
+
+        // Sprint button (hold)
+        btnSprint.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            keys['Space'] = true;
+            btnSprint.classList.add('active');
+        }, { passive: false });
+        btnSprint.addEventListener('touchend', (e) => {
+            keys['Space'] = false;
+            btnSprint.classList.remove('active');
+        });
+        btnSprint.addEventListener('touchcancel', () => {
+            keys['Space'] = false;
+            btnSprint.classList.remove('active');
+        });
+
+        // Interact button (tap)
+        btnInteract.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            interactPressed = true;
+            interactConsumed = false;
+            keys['KeyE'] = true;
+            btnInteract.classList.add('active');
+        }, { passive: false });
+        btnInteract.addEventListener('touchend', (e) => {
+            interactPressed = false;
+            interactConsumed = false;
+            keys['KeyE'] = false;
+            btnInteract.classList.remove('active');
+        });
+        btnInteract.addEventListener('touchcancel', () => {
+            interactPressed = false;
+            interactConsumed = false;
+            keys['KeyE'] = false;
+            btnInteract.classList.remove('active');
+        });
+    })();
+
+    // =========================================================================
+    // === GAME START / RESTART ================================================
+    // =========================================================================
+    function startGame() {
+        initAudio();
+        gameState = GS.PLAYING;
+        currentLevelIndex = 0;
+        totalBtcStolen = 0;
+        cat.lives = 9;
+
+        document.getElementById('startScreen').style.display = 'none';
+        document.getElementById('gameOverScreen').style.display = 'none';
+        document.getElementById('gameComplete').style.display = 'none';
+        document.getElementById('levelComplete').style.display = 'none';
+        document.getElementById('hackOverlay').style.display = 'none';
+
+        parseLevel(levels[currentLevelIndex]);
+        updateHUD();
+        playStealthMusic();
+    }
+
+    // Event listeners
+    document.getElementById('startBtn').addEventListener('click', startGame);
+    document.getElementById('continueBtn').addEventListener('click', nextLevel);
+    document.getElementById('retryBtn').addEventListener('click', startGame);
+    document.getElementById('replayBtn').addEventListener('click', startGame);
+    document.getElementById('muteBtn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        initAudio();
+        toggleMusic();
+    });
+
+    // Start game loop
+    lastTime = performance.now();
+    requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
