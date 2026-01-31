@@ -3069,9 +3069,6 @@
         // Draw tiles (bottom pass)
         drawTiles();
 
-        // Draw objective sprites (at objective coords, independent of tile grid)
-        drawObjectiveSprites();
-
         // Draw noise rings
         drawNoiseRings();
 
@@ -3106,6 +3103,9 @@
 
         // Draw desk tops (over entities for hiding)
         drawDeskTops();
+
+        // Draw objective sprites (on top of desk tops and entities)
+        drawObjectiveSprites();
 
         // Lighting overlay
         drawLightingOverlay();
