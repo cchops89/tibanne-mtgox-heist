@@ -2456,6 +2456,10 @@
         fuse: '#777',
     };
 
+    function isNearObjective(gx, gy) {
+        return objectives.some(o => Math.abs(o.gridX - gx) <= 1 && Math.abs(o.gridY - gy) <= 1);
+    }
+
     function drawTiles() {
         for (let y = 0; y < GRID_H; y++) {
             for (let x = 0; x < GRID_W; x++) {
@@ -2484,14 +2488,16 @@
                     case T.DESK:
                         ctx.fillStyle = COL.floor;
                         ctx.fillRect(px, py, TILE, TILE);
-                        ctx.strokeStyle = COL.floorLine;
-                        ctx.lineWidth = 0.5;
-                        ctx.strokeRect(px, py, TILE, TILE);
-                        // Desk bottom shadow
-                        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-                        ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
-                        ctx.fillStyle = COL.desk;
-                        ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+                        if (!isNearObjective(x, y)) {
+                            ctx.strokeStyle = COL.floorLine;
+                            ctx.lineWidth = 0.5;
+                            ctx.strokeRect(px, py, TILE, TILE);
+                            // Desk bottom shadow
+                            ctx.fillStyle = 'rgba(0,0,0,0.3)';
+                            ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+                            ctx.fillStyle = COL.desk;
+                            ctx.fillRect(px + 1, py + 1, TILE - 2, TILE - 2);
+                        }
                         break;
 
                     case T.KEYBOARD:
@@ -2545,17 +2551,19 @@
                     case T.CHAIR:
                         ctx.fillStyle = COL.floor;
                         ctx.fillRect(px, py, TILE, TILE);
-                        ctx.strokeStyle = COL.floorLine;
-                        ctx.lineWidth = 0.5;
-                        ctx.strokeRect(px, py, TILE, TILE);
-                        ctx.fillStyle = COL.chair;
-                        ctx.beginPath();
-                        ctx.arc(px + TILE/2, py + TILE/2, 10, 0, Math.PI * 2);
-                        ctx.fill();
-                        ctx.fillStyle = '#444';
-                        ctx.beginPath();
-                        ctx.arc(px + TILE/2, py + TILE/2, 6, 0, Math.PI * 2);
-                        ctx.fill();
+                        if (!isNearObjective(x, y)) {
+                            ctx.strokeStyle = COL.floorLine;
+                            ctx.lineWidth = 0.5;
+                            ctx.strokeRect(px, py, TILE, TILE);
+                            ctx.fillStyle = COL.chair;
+                            ctx.beginPath();
+                            ctx.arc(px + TILE/2, py + TILE/2, 10, 0, Math.PI * 2);
+                            ctx.fill();
+                            ctx.fillStyle = '#444';
+                            ctx.beginPath();
+                            ctx.arc(px + TILE/2, py + TILE/2, 6, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
                         break;
 
                     case T.VENT:
@@ -2670,6 +2678,17 @@
                 }
                 ctx.shadowBlur = 0;
             }
+            // Draw chair circle in front of (below) desk sprite
+            const chairX = px + TILE / 2;
+            const chairY = py + sprSize / 2 + TILE / 2 + 4;
+            ctx.fillStyle = COL.chair;
+            ctx.beginPath();
+            ctx.arc(chairX, chairY, 10, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#444';
+            ctx.beginPath();
+            ctx.arc(chairX, chairY, 6, 0, Math.PI * 2);
+            ctx.fill();
         }
     }
 
@@ -2677,6 +2696,7 @@
         // Second pass: draw desk tops over entities for hiding effect
         for (const ia of interactables) {
             if (ia.type !== 'desk') continue;
+            if (isNearObjective(ia.gx, ia.gy)) continue;
             const px = ia.gx * TILE;
             const py = ia.gy * TILE + HUD_H;
             // Semi-transparent desk top if cat is hiding under this desk
