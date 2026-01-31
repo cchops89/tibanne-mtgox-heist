@@ -2038,6 +2038,7 @@
     }
 
     function catchCat() {
+        if (catnipTimer > 0) return; // Invincible — cannot be caught
         playCaughtSfx();
         cat.lives--;
         if (cat.lives <= 0) {
