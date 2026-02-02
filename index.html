@@ -2115,6 +2115,13 @@
 
     function catchCat() {
         if (catnipTimer > 0) return; // Invincible — cannot be caught
+        // Clear hacking state if caught mid-hack
+        if (gameState === GS.HACKING) {
+            cat.hacking = false;
+            cat.hackTarget = null;
+            cat.hackProgress = 0;
+            document.getElementById('hackOverlay').style.display = 'none';
+        }
         playCaughtSfx();
         cat.lives--;
         if (cat.lives <= 0) {
