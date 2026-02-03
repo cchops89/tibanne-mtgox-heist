@@ -2131,6 +2131,7 @@
             document.getElementById('gameOverScreen').style.display = 'flex';
         } else {
             // Restart current level
+            gameState = GS.PLAYING;
             parseLevel(levels[currentLevelIndex]);
             updateHUD();
             showDialog("*hisss* That was close! " + cat.lives + " lives remaining.", 2.5);
