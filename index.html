@@ -101,6 +101,35 @@
             image-rendering: pixelated;
         }
 
+        /* CRT effect: scanlines + vignette + subtle green phosphor tint */
+        #crtOverlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            z-index: 40;
+            background:
+                repeating-linear-gradient(
+                    0deg,
+                    rgba(0, 0, 0, 0.13) 0px,
+                    rgba(0, 0, 0, 0.13) 1px,
+                    transparent 1px,
+                    transparent 3px
+                ),
+                radial-gradient(
+                    ellipse at center,
+                    transparent 55%,
+                    rgba(0, 0, 10, 0.35) 100%
+                );
+            mix-blend-mode: multiply;
+        }
+
+        #crtOverlay::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(120, 255, 120, 0.02);
+        }
+
         #hud {
             position: absolute;
             top: 0;
@@ -784,6 +813,7 @@
     </div>
     <div id="gameContainer" style="border-radius: 8px 8px 0 0; overflow: hidden;">
         <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <div id="crtOverlay"></div>
 
         <button id="muteBtn" title="Toggle Sound">&#x1f50a;</button>
 
@@ -849,6 +879,7 @@
 
         <div id="gameComplete">
             <h1>HEIST COMPLETE</h1>
+            <div class="gc-stats" id="gcStars" style="color:#ffd700; font-size:clamp(14px,4vw,22px); letter-spacing:2px;">★</div>
             <div class="gc-stats">Total BTC Stolen: <span id="gcTotalBtc">850,000</span></div>
             <div class="gc-stats">At today's price: <span id="gcDollarValue">$$$</span></div>
             <div class="gc-quote">"And that, r/Buttcoin, is the real story of Mt. Gox."</div>
@@ -1007,17 +1038,18 @@
     // Tile types
     const T = {
         FLOOR: 0, WALL: 1, DESK: 2, KEYBOARD: 3, SERVER: 4,
-        SHELF: 5, CHAIR: 6, VENT: 7, DOOR: 8, EXIT: 9, FUSE: 10
+        SHELF: 5, CHAIR: 6, VENT: 7, DOOR: 8, EXIT: 9, FUSE: 10,
+        CRACK: 11
     };
 
     // Char-to-tile mapping for level layouts
     const CHAR_MAP = {
         '.': T.FLOOR, 'W': T.WALL, 'D': T.DESK, 'K': T.KEYBOARD,
         'S': T.SERVER, 'H': T.SHELF, 'C': T.CHAIR, 'V': T.VENT,
-        'O': T.DOOR, 'X': T.EXIT, 'F': T.FUSE
+        'O': T.DOOR, 'X': T.EXIT, 'F': T.FUSE, 'B': T.CRACK
     };
 
-    const BLOCKING = new Set([T.WALL, T.DESK, T.SERVER]);
+    const BLOCKING = new Set([T.WALL, T.DESK, T.SERVER, T.CRACK]);
 
     // Alert states
     const AS = { IDLE: 0, SUSPICIOUS: 1, ALERT: 2, SEARCHING: 3 };
@@ -1044,7 +1076,7 @@
                 "W.......W...........SSWW",
                 "W.......W.............WW",
                 "W.......W.............WW",
-                "WWWW.WWWWWWWWW.WWWWWWWWW",
+                "WWWW.WWWWWWWWW.WWWWWBWWW",
                 "W.......................W",
                 "W.......................W",
                 "W..H....................W",
@@ -1095,7 +1127,7 @@
                 "W........W.............W",
                 "W........W.............W",
                 "W........W.............W",
-                "WWWWW.WWWWWW.WWWWWWWWWWW",
+                "WWWWW.WWWWWW.WWWWWBWWWWW",
                 "W.......................W",
                 "W..H....................W",
                 "W.......................W",
@@ -1166,7 +1198,7 @@
                 "W.......W........W.....W",
                 "W.......WWWW.WWWWW.....W",
                 "W..H...........H.......W",
-                "WWWWV WWWWWW.WWWWWW.WWWW",
+                "WWWWV WWBWWW.WWWWWW.WWWW",
                 "W.......................W",
                 "W.......................W",
                 "W.....W.......W........W",
@@ -1255,7 +1287,7 @@
             layout: [
                 "WWWWWWWWWWWWWWWWWWWWWWWWW",
                 "W..H....W.SSSSS.W......W",
-                "W.......W.SSSSS.W......W",
+                "W.......W.SSSSS.B......W",
                 "W.......W.......W......W",
                 "W.......W.......W......W",
                 "W.......WWW.WWWWWWWW.WWW",
@@ -1368,7 +1400,7 @@
             layout: [
                 "WWWWWWWWWWWWWWWWWWWWWWWWW",
                 "W..H..W..SSS..W........W",
-                "W.....W..SSS..W........W",
+                "W.....B..SSS..W........W",
                 "W.....W.......W........W",
                 "W.....WWW.WWWWW........W",
                 "W.........H...........HW",
@@ -1728,7 +1760,61 @@
     // === CANVAS SETUP ========================================================
     // =========================================================================
     const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
+
+    // Cached light gradients (created once at origin, translated per-entity to avoid
+    // per-frame createRadialGradient allocation — was the #1 GC churn source)
+    const guardLightGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, TILE * 3);
+    guardLightGrad.addColorStop(0, 'rgba(0,0,0,0.3)');
+    guardLightGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    const objLightGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, TILE * 2);
+    objLightGrad.addColorStop(0, 'rgba(0,0,0,0.4)');
+    objLightGrad.addColorStop(1, 'rgba(0,0,0,0)');
+
+    // Retina-crisp rendering: scale the backing store by devicePixelRatio (capped at 2
+    // for perf) while keeping the logical draw space at 800x600 so all draw code is unchanged.
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = CANVAS_W * DPR;
+    canvas.height = CANVAS_H * DPR;
+    ctx.scale(DPR, DPR);
+
+    // Detection vignette (screen-space, pulses red at edges when a guard is onto you)
+    const detVignette = ctx.createRadialGradient(
+        CANVAS_W / 2, CANVAS_H / 2, CANVAS_H * 0.34,
+        CANVAS_W / 2, CANVAS_H / 2, CANVAS_H * 0.75);
+    detVignette.addColorStop(0, 'rgba(255,0,0,0)');
+    detVignette.addColorStop(1, 'rgba(255,0,0,0.55)');
+
+    // Vision-cone flashlight gradients, memoized by color+radius (few unique entries)
+    const coneGradCache = {};
+    function getConeGrad(radius, colorPrefix) {
+        const key = colorPrefix + Math.round(radius);
+        if (!coneGradCache[key]) {
+            const g = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+            g.addColorStop(0, colorPrefix + '0.24)');
+            g.addColorStop(0.7, colorPrefix + '0.10)');
+            g.addColorStop(1, colorPrefix + '0)');
+            coneGradCache[key] = g;
+        }
+        return coneGradCache[key];
+    }
+
+    // Juice state
+    let shakeMag = 0;        // screen shake magnitude (px), decays over time
+    let floaters = [];       // rising "+BTC" numbers
+    let sceneDetected = false; // any guard fully alerted this level (kills Ghost bonus)
+
+    // Star rating: 1 for finishing, +1 ghost (undetected), +1 beating par time
+    const PAR_TIMES = [60, 90, 120, 150, 165]; // seconds per level
+    let levelTime = 0;       // seconds in current level attempt (resets on catch/restart)
+    let levelStars = [];     // stars earned per level this run
+    let levelTimes = [];     // completion time per level this run
+
+    function fmtTime(s) {
+        const m = Math.floor(s / 60);
+        const sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
 
     // =========================================================================
     // === GAME STATE ==========================================================
@@ -1746,6 +1832,7 @@
     let noiseEvents = [];
     let interactables = []; // shelves, desks for hiding
     let fuseBoxes = [];
+    let breakables = [];    // compromised wall sections: { gx, gy, hp, broken }
     let levelBtcStolen = 0;
     let dialogText = '';
     let dialogTimer = 0;
@@ -1788,6 +1875,7 @@
         collisionMap = [];
         interactables = [];
         fuseBoxes = [];
+        breakables = [];
 
         for (let y = 0; y < GRID_H; y++) {
             tiles[y] = [];
@@ -1806,6 +1894,9 @@
                 }
                 if (t === T.FUSE) {
                     fuseBoxes.push({ gx: x, gy: y, used: false });
+                }
+                if (t === T.CRACK) {
+                    breakables.push({ gx: x, gy: y, hp: 3, broken: false });
                 }
             }
         }
@@ -1862,6 +1953,10 @@
         cat.facing = -Math.PI / 2;
 
         noiseEvents = [];
+        floaters = [];
+        shakeMag = 0;
+        sceneDetected = false;
+        levelTime = 0;
         levelBtcStolen = 0;
         cameraBlackout = 0;
         catnipTimer = 0;
@@ -1887,7 +1982,7 @@
     }
 
     function castRay(ox, oy, angle, maxDist) {
-        const step = TILE / 4;
+        const step = TILE / 2;
         const dx = Math.cos(angle) * step;
         const dy = Math.sin(angle) * step;
         let cx = ox, cy = oy;
@@ -1950,16 +2045,83 @@
         const mx = (dx / dist) * speed * dt;
         const my = (dy / dist) * speed * dt;
 
-        // Check collision before moving
+        // Move with per-axis wall sliding so corners don't hard-stop the entity
         const nx = entity.x + mx;
         const ny = entity.y + my;
-        const gx = Math.floor(nx / TILE);
-        const gy = Math.floor(ny / TILE);
-        if (!isBlocked(gx, gy)) {
+        if (!isBlocked(Math.floor(nx / TILE), Math.floor(ny / TILE))) {
             entity.x = nx;
             entity.y = ny;
-            entity.facing = Math.atan2(dy, dx);
+        } else if (!isBlocked(Math.floor(nx / TILE), Math.floor(entity.y / TILE))) {
+            entity.x = nx; // slide along X
+        } else if (!isBlocked(Math.floor(entity.x / TILE), Math.floor(ny / TILE))) {
+            entity.y = ny; // slide along Y
         }
+        entity.facing = Math.atan2(dy, dx);
+        return false;
+    }
+
+    // BFS pathfinding on the tile grid (25x18 — cheap). Returns waypoint centers, or null.
+    function findPath(sx, sy, tx, ty) {
+        if (isBlocked(tx, ty) || isBlocked(sx, sy)) return null;
+        const W = GRID_W, key = (x, y) => y * W + x;
+        const prev = new Int16Array(W * GRID_H).fill(-1);
+        const visited = new Uint8Array(W * GRID_H);
+        const start = key(sx, sy), goal = key(tx, ty);
+        const q = [start];
+        visited[start] = 1;
+        let found = start === goal;
+        while (q.length && !found) {
+            const k = q.shift();
+            const cx = k % W, cy = (k / W) | 0;
+            for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+                const nx = cx + dx, ny = cy + dy;
+                if (nx < 0 || nx >= W || ny < 0 || ny >= GRID_H) continue;
+                const nk = key(nx, ny);
+                if (visited[nk] || collisionMap[ny][nx]) continue;
+                visited[nk] = 1;
+                prev[nk] = k;
+                if (nk === goal) { found = true; break; }
+                q.push(nk);
+            }
+        }
+        if (!found) return null;
+        const path = [];
+        let k = goal;
+        while (k !== start) {
+            path.push({ x: (k % W) * TILE + TILE / 2, y: ((k / W) | 0) * TILE + TILE / 2 });
+            k = prev[k];
+        }
+        path.reverse();
+        return path;
+    }
+
+    // Guard movement that routes around walls. Repaths when the target tile
+    // changes, on a timer (covers broken walls / moving cat), or when pathless.
+    function moveAlongPath(guard, tx, ty, speed, dt) {
+        const ggx = Math.floor(guard.x / TILE), ggy = Math.floor(guard.y / TILE);
+        const tgx = Math.floor(tx / TILE), tgy = Math.floor(ty / TILE);
+
+        // Same or adjacent tile: go direct
+        if (Math.abs(tgx - ggx) + Math.abs(tgy - ggy) <= 1) {
+            guard.path = null;
+            return moveToward(guard, tx, ty, speed, dt);
+        }
+
+        guard.repathTimer = (guard.repathTimer || 0) - dt;
+        if (!guard.path || guard.pathTgx !== tgx || guard.pathTgy !== tgy || guard.repathTimer <= 0) {
+            guard.path = findPath(ggx, ggy, tgx, tgy);
+            guard.pathTgx = tgx;
+            guard.pathTgy = tgy;
+            guard.repathTimer = 0.6;
+        }
+
+        if (!guard.path || guard.path.length === 0) {
+            // No route (e.g. noise behind an unbroken wall) — press toward it directly
+            return moveToward(guard, tx, ty, speed, dt);
+        }
+
+        const wp = guard.path[0];
+        if (moveToward(guard, wp.x, wp.y, speed, dt)) guard.path.shift();
         return false;
     }
 
@@ -1972,8 +2134,9 @@
             guard.detectionMeter = Math.min(100, guard.detectionMeter + fillRate * dt);
 
             if (guard.detectionMeter >= 100) {
-                if (guard.alertState !== AS.ALERT) playDetectedSfx();
+                if (guard.alertState !== AS.ALERT) { playDetectedSfx(); shakeMag = Math.max(shakeMag, 7); }
                 guard.alertState = AS.ALERT;
+                sceneDetected = true;
                 guard.lastKnownPos = { x: cat.x, y: cat.y };
             } else if (guard.detectionMeter > 25 && guard.alertState === AS.IDLE) {
                 guard.alertState = AS.SUSPICIOUS;
@@ -2010,7 +2173,7 @@
                     const nwp = guard.patrol[nextIdx];
                     guard.facing = Math.atan2(nwp.y - wp.y, nwp.x - wp.x);
                 } else {
-                    const arrived = moveToward(guard, wp.x, wp.y, guard.speed, dt);
+                    const arrived = moveAlongPath(guard, wp.x, wp.y, guard.speed, dt);
                     if (arrived) {
                         guard.waitTimer = wp.wait;
                         guard.patrolIndex = (guard.patrolIndex + 1) % guard.patrol.length;
@@ -2020,7 +2183,7 @@
             }
             case AS.SUSPICIOUS: {
                 if (guard.lastKnownPos) {
-                    const arrived = moveToward(guard, guard.lastKnownPos.x, guard.lastKnownPos.y, guard.speed * 0.7, dt);
+                    const arrived = moveAlongPath(guard, guard.lastKnownPos.x, guard.lastKnownPos.y, guard.speed * 0.7, dt);
                     if (arrived) {
                         guard.searchTimer += dt;
                         // Look around
@@ -2041,7 +2204,7 @@
                     guard.lastKnownPos = { x: cat.x, y: cat.y };
                 }
                 if (guard.lastKnownPos) {
-                    const arrived = moveToward(guard, guard.lastKnownPos.x, guard.lastKnownPos.y, guard.speed * 1.6, dt);
+                    const arrived = moveAlongPath(guard, guard.lastKnownPos.x, guard.lastKnownPos.y, guard.speed * 1.6, dt);
                     // Check if guard catches cat
                     const dx = cat.x - guard.x;
                     const dy = cat.y - guard.y;
@@ -2086,8 +2249,9 @@
             cam.detectionMeter = Math.min(100, cam.detectionMeter + 70 * dt);
             if (cam.detectionMeter >= 100) {
                 // Camera triggers all guards to alert
+                sceneDetected = true;
                 guards.forEach(g => {
-                    if (g.alertState !== AS.ALERT) playDetectedSfx();
+                    if (g.alertState !== AS.ALERT) { playDetectedSfx(); shakeMag = Math.max(shakeMag, 7); }
                     g.alertState = AS.ALERT;
                     g.lastKnownPos = { x: cat.x, y: cat.y };
                     g.detectionMeter = 100;
@@ -2123,6 +2287,7 @@
             document.getElementById('hackOverlay').style.display = 'none';
         }
         playCaughtSfx();
+        shakeMag = 16;
         cat.lives--;
         if (cat.lives <= 0) {
             gameState = GS.GAME_OVER;
@@ -2155,9 +2320,33 @@
         stopMusic();
         const ld = levels[currentLevelIndex];
 
+        // Ghost Heist bonus — never fully detected this level
+        let ghostLine = '';
+        if (!sceneDetected) {
+            const bonus = Math.round(levelBtcStolen * 0.2 / 1000) * 1000;
+            levelBtcStolen += bonus;
+            totalBtcStolen += bonus;
+            updateHUD();
+            ghostLine = '👻 GHOST HEIST — never detected! +' +
+                bonus.toLocaleString() + ' BTC bonus';
+        }
+
+        // Stars: 1 finish, +1 ghost, +1 under par
+        const par = PAR_TIMES[currentLevelIndex] || 120;
+        const underPar = levelTime <= par;
+        const stars = 1 + (!sceneDetected ? 1 : 0) + (underPar ? 1 : 0);
+        levelStars[currentLevelIndex] = stars;
+        levelTimes[currentLevelIndex] = levelTime;
+        const starStr = '★'.repeat(stars) + '☆'.repeat(3 - stars);
+        const timeLine = 'Time: ' + fmtTime(levelTime) + ' (par ' + fmtTime(par) + ')' +
+            (underPar ? ' ⚡' : '');
+
         document.getElementById('lcRedditTitle').textContent = ld.redditTitle;
         document.getElementById('lcRedditBody').textContent = ld.redditBody;
-        document.getElementById('lcStats').textContent =
+        document.getElementById('lcStats').innerHTML =
+            '<div style="color:#ffd700;font-size:1.5em;letter-spacing:6px;margin-bottom:6px;">' + starStr + '</div>' +
+            (ghostLine ? '<div style="color:#4ade80;margin-bottom:6px;">' + ghostLine + '</div>' : '') +
+            '<div style="color:#aaa;font-size:0.85em;margin-bottom:6px;">' + timeLine + '</div>' +
             'BTC Stolen This Level: ' + levelBtcStolen.toLocaleString() +
             ' | Total: ' + totalBtcStolen.toLocaleString();
         document.getElementById('levelComplete').style.display = 'flex';
@@ -2171,6 +2360,10 @@
         if (currentLevelIndex >= levels.length) {
             // Game complete!
             gameState = GS.GAME_COMPLETE;
+            const totalStars = levelStars.reduce((a, b) => a + (b || 0), 0);
+            const totalTime = levelTimes.reduce((a, b) => a + (b || 0), 0);
+            document.getElementById('gcStars').textContent =
+                '★ ' + totalStars + ' / ' + (levels.length * 3) + ' stars — heist time ' + fmtTime(totalTime);
             document.getElementById('gcTotalBtc').textContent = totalBtcStolen.toLocaleString();
             // Rough BTC price estimate for comedy
             document.getElementById('gcDollarValue').textContent = '$' + (totalBtcStolen * 43000).toLocaleString();
@@ -2252,6 +2445,14 @@
         noiseEvents.forEach(n => n.age += dt);
         noiseEvents = noiseEvents.filter(n => n.age < 1.5);
 
+        // Juice: floaters + screen shake decay
+        floaters.forEach(f => f.age += dt);
+        floaters = floaters.filter(f => f.age < f.life);
+        if (shakeMag > 0) shakeMag = Math.max(0, shakeMag - 60 * dt);
+
+        // Level timer (for par-time star)
+        levelTime += dt;
+
         // Update alert bar
         const maxDet = getMaxDetection();
         const alertBar = document.getElementById('alertBar');
@@ -2296,6 +2497,13 @@
                 totalBtcStolen += btc;
                 updateHUD();
                 playBtcSend();
+
+                floaters.push({
+                    x: cat.hackTarget.gridX * TILE + TILE / 2,
+                    y: cat.hackTarget.gridY * TILE + HUD_H,
+                    text: '+' + btc.toLocaleString() + ' BTC',
+                    color: '#f7931a', age: 0, life: 1.5
+                });
 
                 cat.hacking = false;
                 cat.hackTarget = null;
@@ -2424,6 +2632,36 @@
                         hackFlavors[Math.floor(Math.random() * hackFlavors.length)];
                     foundKeyboard = true;
                     break;
+                }
+            }
+
+            // Check for compromised wall (break through — 3 swipes, each makes noise)
+            if (!foundKeyboard) {
+                for (const bw of breakables) {
+                    if (bw.broken) continue;
+                    const dx = Math.abs(bw.gx - catGX);
+                    const dy = Math.abs(bw.gy - catGY);
+                    if (dx <= 1 && dy <= 1) {
+                        bw.hp--;
+                        sfx(160, 0.09, 'sawtooth', 0.16, 60); // paw swipe scratch
+                        emitNoise(bw.gx * TILE + TILE / 2, bw.gy * TILE + TILE / 2, 3.5);
+                        shakeMag = Math.max(shakeMag, 3);
+                        if (bw.hp <= 0) {
+                            bw.broken = true;
+                            tiles[bw.gy][bw.gx] = T.FLOOR;
+                            collisionMap[bw.gy][bw.gx] = false;
+                            playKnockSfx();
+                            emitNoise(bw.gx * TILE + TILE / 2, bw.gy * TILE + TILE / 2, 6);
+                            shakeMag = Math.max(shakeMag, 8);
+                            showDialog("*CRUNCH* Tibanne breaks through the wall!", 2.5);
+                        } else {
+                            showDialog(bw.hp === 2
+                                ? "*scratch* This wall is weak..."
+                                : "*scratch* Almost through!", 1.5);
+                        }
+                        foundKeyboard = true; // consume interaction
+                        break;
+                    }
                 }
             }
 
@@ -2595,13 +2833,15 @@
                         ctx.fillRect(px, py, TILE, TILE);
                         ctx.fillStyle = COL.server;
                         ctx.fillRect(px + 2, py + 1, TILE - 4, TILE - 2);
-                        // LEDs
-                        const ledOn = Math.random() > 0.3;
+                        // LEDs — slow, per-server-deterministic blink (was per-frame random strobe)
+                        const now = Date.now();
+                        const seed = x * 1.7 + y * 0.9;
+                        const ledOn = Math.sin(now / 600 + seed) > -0.3;
                         ctx.fillStyle = ledOn ? COL.serverLed : '#333';
                         ctx.fillRect(px + 5, py + 5, 3, 3);
-                        ctx.fillStyle = Math.random() > 0.5 ? '#f00' : '#333';
+                        ctx.fillStyle = Math.sin(now / 850 + seed * 2.3) > 0.4 ? '#f00' : '#333';
                         ctx.fillRect(px + 5, py + 12, 3, 3);
-                        ctx.fillStyle = ledOn ? '#ff0' : '#333';
+                        ctx.fillStyle = Math.sin(now / 500 + seed * 1.5) > 0 ? '#ff0' : '#333';
                         ctx.fillRect(px + 5, py + 19, 3, 3);
                         break;
 
@@ -2708,6 +2948,45 @@
                         break;
                     }
 
+                    case T.CRACK: {
+                        // Compromised wall — looks like wall with a cat-sized weak spot
+                        ctx.fillStyle = COL.wall;
+                        ctx.fillRect(px, py, TILE, TILE);
+                        ctx.fillStyle = COL.wallTop;
+                        ctx.fillRect(px, py, TILE, 4);
+                        ctx.fillRect(px, py, 4, TILE);
+                        const bw = breakables.find(b => b.gx === x && b.gy === y);
+                        const dmg = bw ? 3 - bw.hp : 0;
+                        // Dark recessed weak spot
+                        ctx.fillStyle = '#26263f';
+                        ctx.beginPath();
+                        ctx.ellipse(px + TILE / 2, py + TILE / 2 + 3, 9 + dmg * 2, 7 + dmg * 1.5, 0, 0, Math.PI * 2);
+                        ctx.fill();
+                        // Crack lines (more as it takes damage)
+                        ctx.strokeStyle = '#191930';
+                        ctx.lineWidth = 1.5;
+                        ctx.beginPath();
+                        ctx.moveTo(px + 8, py + 6);
+                        ctx.lineTo(px + 14, py + 14);
+                        ctx.lineTo(px + 10, py + 22);
+                        ctx.moveTo(px + 24, py + 8);
+                        ctx.lineTo(px + 19, py + 16);
+                        ctx.lineTo(px + 23, py + 26);
+                        if (dmg >= 1) {
+                            ctx.moveTo(px + 4, py + 18);
+                            ctx.lineTo(px + 13, py + 19);
+                            ctx.moveTo(px + 16, py + 4);
+                            ctx.lineTo(px + 16, py + 12);
+                        }
+                        if (dmg >= 2) {
+                            ctx.moveTo(px + 6, py + 26);
+                            ctx.lineTo(px + 16, py + 20);
+                            ctx.lineTo(px + 27, py + 24);
+                        }
+                        ctx.stroke();
+                        break;
+                    }
+
                     case T.FUSE: {
                         ctx.fillStyle = COL.floor;
                         ctx.fillRect(px, py, TILE, TILE);
@@ -2794,21 +3073,18 @@
         }
     }
 
-    function drawVisionCone(entity, color) {
+    function drawVisionCone(entity, colorPrefix) {
         ctx.save();
-        ctx.globalAlpha = 0.12;
-        ctx.fillStyle = color;
+        ctx.translate(entity.x, entity.y + HUD_H);
+        ctx.fillStyle = getConeGrad(entity.viewDist * TILE, colorPrefix);
 
-        const numRays = 20;
+        const numRays = 14;
         ctx.beginPath();
-        ctx.moveTo(entity.x, entity.y + HUD_H);
+        ctx.moveTo(0, 0);
         for (let i = 0; i <= numRays; i++) {
             const angle = entity.facing - entity.fov / 2 + (entity.fov / numRays) * i;
             const hitDist = castRay(entity.x, entity.y, angle, entity.viewDist * TILE);
-            ctx.lineTo(
-                entity.x + Math.cos(angle) * hitDist,
-                entity.y + Math.sin(angle) * hitDist + HUD_H
-            );
+            ctx.lineTo(Math.cos(angle) * hitDist, Math.sin(angle) * hitDist);
         }
         ctx.closePath();
         ctx.fill();
@@ -2817,14 +3093,23 @@
 
     function drawGuard(g) {
         // Vision cone
-        let coneColor = '#ffff00';
-        if (g.alertState === AS.SUSPICIOUS) coneColor = '#ff8800';
-        if (g.alertState === AS.ALERT) coneColor = '#ff0000';
-        if (g.alertState === AS.SEARCHING) coneColor = '#ff4400';
+        let coneColor = 'rgba(255,255,0,';
+        if (g.alertState === AS.SUSPICIOUS) coneColor = 'rgba(255,136,0,';
+        if (g.alertState === AS.ALERT) coneColor = 'rgba(255,0,0,';
+        if (g.alertState === AS.SEARCHING) coneColor = 'rgba(255,68,0,';
         drawVisionCone(g, coneColor);
 
         const gx = g.x;
         const gy = g.y + HUD_H;
+
+        // Drop shadow
+        ctx.save();
+        ctx.globalAlpha = 0.25;
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.ellipse(gx, gy + 10, 9, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
 
         ctx.save();
         ctx.translate(gx, gy);
@@ -2884,7 +3169,7 @@
         }
 
         // Vision cone
-        let coneColor = cam.detectionMeter > 50 ? '#ff4400' : '#4488ff';
+        let coneColor = cam.detectionMeter > 50 ? 'rgba(255,68,0,' : 'rgba(68,136,255,';
         drawVisionCone(cam, coneColor);
 
         // Camera body
@@ -2913,6 +3198,17 @@
     function drawCat() {
         const cx = cat.x;
         const cy = cat.y + HUD_H;
+
+        // Drop shadow (skip while hidden)
+        if (!cat.hiding) {
+            ctx.save();
+            ctx.globalAlpha = 0.25;
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.ellipse(cx, cy + 8, 8, 3.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
 
         ctx.save();
 
@@ -3065,28 +3361,28 @@
 
         // Light around monitors/keyboards
         ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = objLightGrad;
         for (const obj of objectives) {
             if (obj.hacked) continue;
             const ox = obj.gridX * TILE + TILE / 2;
             const oy = obj.gridY * TILE + TILE / 2 + HUD_H;
-            const grad = ctx.createRadialGradient(ox, oy, 0, ox, oy, TILE * 2);
-            grad.addColorStop(0, 'rgba(0,0,0,0.4)');
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
+            ctx.save();
+            ctx.translate(ox, oy);
             ctx.beginPath();
-            ctx.arc(ox, oy, TILE * 2, 0, Math.PI * 2);
+            ctx.arc(0, 0, TILE * 2, 0, Math.PI * 2);
             ctx.fill();
+            ctx.restore();
         }
 
         // Light around guards (flashlights)
+        ctx.fillStyle = guardLightGrad;
         for (const g of guards) {
-            const grad = ctx.createRadialGradient(g.x, g.y + HUD_H, 0, g.x, g.y + HUD_H, TILE * 3);
-            grad.addColorStop(0, 'rgba(0,0,0,0.3)');
-            grad.addColorStop(1, 'rgba(0,0,0,0)');
-            ctx.fillStyle = grad;
+            ctx.save();
+            ctx.translate(g.x, g.y + HUD_H);
             ctx.beginPath();
-            ctx.arc(g.x, g.y + HUD_H, TILE * 3, 0, Math.PI * 2);
+            ctx.arc(0, 0, TILE * 3, 0, Math.PI * 2);
             ctx.fill();
+            ctx.restore();
         }
 
         ctx.globalCompositeOperation = 'source-over';
@@ -3134,6 +3430,16 @@
                 ctx.fillText('[E] FUSE', fb.gx * TILE + TILE/2, fb.gy * TILE + HUD_H - 4);
             }
         }
+
+        for (const bw of breakables) {
+            if (bw.broken) continue;
+            if (Math.abs(bw.gx - catGX) <= 1 && Math.abs(bw.gy - catGY) <= 1) {
+                ctx.fillStyle = 'rgba(255, 120, 60, 0.85)';
+                ctx.font = 'bold 9px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('[E] BREAK x' + bw.hp, bw.gx * TILE + TILE/2, bw.gy * TILE + HUD_H - 4);
+            }
+        }
     }
 
     function drawCameraBlackoutTimer() {
@@ -3152,6 +3458,12 @@
         ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'left';
         ctx.fillText('Hacks: ' + done + '/' + total, 8, HUD_H + 30);
+
+        // Level timer — dims once past par (par star lost)
+        const par = PAR_TIMES[currentLevelIndex] || 120;
+        ctx.fillStyle = levelTime <= par ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)';
+        ctx.font = '11px monospace';
+        ctx.fillText(fmtTime(levelTime), 8, HUD_H + 46);
     }
 
     // =========================================================================
@@ -3171,8 +3483,30 @@
 
         if (gameState === GS.GAME_OVER || gameState === GS.GAME_COMPLETE) return;
 
+        // Screen shake — offset the whole world (bg above stays put so no gap flashes)
+        let shX = 0, shY = 0;
+        if (shakeMag > 0.3) {
+            shX = (Math.random() - 0.5) * shakeMag;
+            shY = (Math.random() - 0.5) * shakeMag;
+        }
+        ctx.save();
+        ctx.translate(shX, shY);
+
         // Draw tiles (bottom pass)
         drawTiles();
+
+        // Rubble on broken wall tiles
+        for (const bw of breakables) {
+            if (!bw.broken) continue;
+            const px = bw.gx * TILE, py = bw.gy * TILE + HUD_H;
+            ctx.fillStyle = '#33334f';
+            ctx.fillRect(px + 3, py + 20, 7, 5);
+            ctx.fillRect(px + 20, py + 6, 6, 5);
+            ctx.fillRect(px + 12, py + 24, 9, 4);
+            ctx.fillStyle = '#28283e';
+            ctx.fillRect(px + 22, py + 22, 5, 4);
+            ctx.fillRect(px + 6, py + 8, 5, 4);
+        }
 
         // Draw noise rings
         drawNoiseRings();
@@ -3231,8 +3565,35 @@
             ctx.restore();
         }
 
+        // Floating BTC gain numbers
+        for (const f of floaters) {
+            const a = Math.max(0, 1 - f.age / f.life);
+            ctx.save();
+            ctx.globalAlpha = a;
+            ctx.fillStyle = f.color || '#f7931a';
+            ctx.font = 'bold 15px monospace';
+            ctx.textAlign = 'center';
+            ctx.shadowColor = 'rgba(0,0,0,0.85)';
+            ctx.shadowBlur = 3;
+            ctx.fillText(f.text, f.x, f.y - f.age * 22);
+            ctx.restore();
+        }
+
         // Objective tracker
         drawObjectiveTracker();
+
+        ctx.restore(); // end screen shake
+
+        // Detection vignette (screen space, above the shake so edges stay anchored)
+        const md = getMaxDetection();
+        if (md > 30) {
+            const pulse = 0.45 + 0.25 * (Math.sin(Date.now() / 120) * 0.5 + 0.5);
+            ctx.save();
+            ctx.globalAlpha = Math.min(1, (md - 30) / 70) * pulse;
+            ctx.fillStyle = detVignette;
+            ctx.fillRect(0, HUD_H, CANVAS_W, GRID_H * TILE);
+            ctx.restore();
+        }
     }
 
     // =========================================================================
@@ -3399,6 +3760,8 @@
         gameState = GS.PLAYING;
         currentLevelIndex = 0;
         totalBtcStolen = 0;
+        levelStars = [];
+        levelTimes = [];
         cat.lives = 9;
 
         document.getElementById('startScreen').style.display = 'none';
