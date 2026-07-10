@@ -1803,6 +1803,29 @@
     let shakeMag = 0;        // screen shake magnitude (px), decays over time
     let floaters = [];       // rising "+BTC" numbers
     let sceneDetected = false; // any guard fully alerted this level (kills Ghost bonus)
+    let particles = [];      // burst particles
+    let pawPrints = [];      // fading paw prints behind the cat
+    let exitPos = null;      // exit tile center (for the compass arrow)
+
+    function spawnBurst(x, y, opts) {
+        const n = opts.count || 8;
+        for (let i = 0; i < n; i++) {
+            if (particles.length > 220) break;
+            const a = Math.random() * Math.PI * 2;
+            const sp = (opts.speed || 60) * (0.4 + Math.random() * 0.9);
+            particles.push({
+                x, y,
+                vx: Math.cos(a) * sp,
+                vy: Math.sin(a) * sp - (opts.up || 0),
+                size: (opts.size || 3) * (0.6 + Math.random() * 0.8),
+                color: opts.colors[Math.floor(Math.random() * opts.colors.length)],
+                life: (opts.life || 0.7) * (0.7 + Math.random() * 0.6),
+                age: 0,
+                grav: opts.grav || 0,
+                text: opts.text || null
+            });
+        }
+    }
 
     // Star rating: 1 for finishing, +1 ghost (undetected), +1 beating par time
     const PAR_TIMES = [60, 90, 120, 150, 165]; // seconds per level
@@ -1898,6 +1921,9 @@
                 if (t === T.CRACK) {
                     breakables.push({ gx: x, gy: y, hp: 3, broken: false });
                 }
+                if (t === T.EXIT) {
+                    exitPos = { x: x * TILE + TILE / 2, y: y * TILE + TILE / 2 };
+                }
             }
         }
 
@@ -1954,6 +1980,8 @@
 
         noiseEvents = [];
         floaters = [];
+        particles = [];
+        pawPrints = [];
         shakeMag = 0;
         sceneDetected = false;
         levelTime = 0;
@@ -2295,9 +2323,14 @@
             document.getElementById('goTotalBtc').textContent = totalBtcStolen.toLocaleString();
             document.getElementById('gameOverScreen').style.display = 'flex';
         } else {
-            // Restart current level
+            // Restart current level (poof marks where you got grabbed)
+            const grabX = cat.x, grabY = cat.y;
             gameState = GS.PLAYING;
             parseLevel(levels[currentLevelIndex]);
+            spawnBurst(grabX, grabY, {
+                count: 14, colors: ['#ff4444', '#fff', '#ffaaaa'],
+                speed: 100, size: 3, life: 0.6
+            });
             updateHUD();
             showDialog("*hisss* That was close! " + cat.lives + " lives remaining.", 2.5);
         }
@@ -2445,9 +2478,18 @@
         noiseEvents.forEach(n => n.age += dt);
         noiseEvents = noiseEvents.filter(n => n.age < 1.5);
 
-        // Juice: floaters + screen shake decay
+        // Juice: floaters + particles + prints + screen shake decay
         floaters.forEach(f => f.age += dt);
         floaters = floaters.filter(f => f.age < f.life);
+        particles.forEach(p => {
+            p.age += dt;
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += p.grav * dt;
+        });
+        particles = particles.filter(p => p.age < p.life);
+        pawPrints.forEach(p => p.age += dt);
+        pawPrints = pawPrints.filter(p => p.age < 1.4);
         if (shakeMag > 0) shakeMag = Math.max(0, shakeMag - 60 * dt);
 
         // Level timer (for par-time star)
@@ -2478,6 +2520,7 @@
 
         // === HACKING STATE ===
         if (gameState === GS.HACKING) {
+            cat.animTimer += dt; // keep hop animation running
             cat.hackProgress += 30 * dt; // ~3.3 seconds to hack
             playHackTyping();
             document.getElementById('hackBarFill').style.width = cat.hackProgress + '%';
@@ -2503,6 +2546,16 @@
                     y: cat.hackTarget.gridY * TILE + HUD_H,
                     text: '+' + btc.toLocaleString() + ' BTC',
                     color: '#f7931a', age: 0, life: 1.5
+                });
+                const hx = cat.hackTarget.gridX * TILE + TILE / 2;
+                const hy = cat.hackTarget.gridY * TILE + TILE / 2;
+                spawnBurst(hx, hy, {
+                    count: 10, colors: ['#f7931a', '#ffd700'],
+                    speed: 80, up: 30, grav: 60, size: 2.5, life: 0.9
+                });
+                spawnBurst(hx, hy, {
+                    count: 4, colors: ['#f7931a'],
+                    speed: 40, up: 70, size: 3, life: 1.2, text: '₿'
                 });
 
                 cat.hacking = false;
@@ -2537,6 +2590,7 @@
         cat.sprinting = keys['Space'] && !cat.sneaking;
 
         const isMoving = mx !== 0 || my !== 0;
+        cat.moving = isMoving && !cat.hiding;
 
         if (cat.hiding) {
             // Can't move while hiding, only unhide with E
@@ -2600,6 +2654,16 @@
                     playWalkStep();
                     emitNoise(cat.x, cat.y, 2.5);
                 }
+                // Paw print, alternating left/right of movement axis
+                cat.stepSide = !cat.stepSide;
+                const side = cat.stepSide ? 4 : -4;
+                pawPrints.push({
+                    x: cat.x + Math.cos(cat.facing + Math.PI / 2) * side,
+                    y: cat.y + Math.sin(cat.facing + Math.PI / 2) * side,
+                    angle: cat.facing,
+                    age: 0
+                });
+                if (pawPrints.length > 40) pawPrints.shift();
             }
         }
 
@@ -2646,6 +2710,10 @@
                         sfx(160, 0.09, 'sawtooth', 0.16, 60); // paw swipe scratch
                         emitNoise(bw.gx * TILE + TILE / 2, bw.gy * TILE + TILE / 2, 3.5);
                         shakeMag = Math.max(shakeMag, 3);
+                        spawnBurst(bw.gx * TILE + TILE / 2, bw.gy * TILE + TILE / 2, {
+                            count: 5, colors: ['#55557a', '#33334f'],
+                            speed: 45, grav: 140, size: 2.5, life: 0.5
+                        });
                         if (bw.hp <= 0) {
                             bw.broken = true;
                             tiles[bw.gy][bw.gx] = T.FLOOR;
@@ -2653,6 +2721,10 @@
                             playKnockSfx();
                             emitNoise(bw.gx * TILE + TILE / 2, bw.gy * TILE + TILE / 2, 6);
                             shakeMag = Math.max(shakeMag, 8);
+                            spawnBurst(bw.gx * TILE + TILE / 2, bw.gy * TILE + TILE / 2, {
+                                count: 16, colors: ['#55557a', '#33334f', '#4d4d7e'],
+                                speed: 95, grav: 220, size: 3.5, life: 0.8
+                            });
                             showDialog("*CRUNCH* Tibanne breaks through the wall!", 2.5);
                         } else {
                             showDialog(bw.hp === 2
@@ -2675,6 +2747,10 @@
                         ia.knocked = true;
                         playKnockSfx();
                         emitNoise(ia.gx * TILE + TILE/2, ia.gy * TILE + TILE/2, 6);
+                        spawnBurst(ia.gx * TILE + TILE/2, ia.gy * TILE + TILE/2, {
+                            count: 10, colors: ['#a44', '#4a4', '#44a', '#aa4', '#665'],
+                            speed: 70, grav: 260, size: 3, life: 0.8
+                        });
                         showDialog("*CRASH* Tibanne knocks everything off the shelf!", 2);
                         break;
                     }
@@ -2721,6 +2797,10 @@
             if (!nip.collected && nip.gx === catGXnip && nip.gy === catGYnip) {
                 nip.collected = true;
                 catnipTimer = 5;
+                spawnBurst(nip.gx * TILE + TILE / 2, nip.gy * TILE + TILE / 2, {
+                    count: 12, colors: ['#7fff7f', '#0f0', '#bfffbf'],
+                    speed: 50, up: 40, size: 2.5, life: 0.9
+                });
                 showDialog("CATNIP! Tibanne is invincible for 5 seconds!", 2.5);
                 // Reset all guard detection and make them idle
                 guards.forEach(g => {
@@ -2751,7 +2831,9 @@
 
         // Animation
         cat.animTimer += dt;
-        cat.tailWag = Math.sin(cat.animTimer * 5) * 4;
+        cat.walkPhase = (cat.walkPhase || 0) +
+            (cat.moving ? (cat.sprinting ? 16 : (cat.sneaking ? 6 : 10)) * dt : 0);
+        cat.tailWag = Math.sin(cat.animTimer * (cat.moving ? 9 : 4)) * 4;
     }
 
     // =========================================================================
@@ -3099,6 +3181,12 @@
         if (g.alertState === AS.SEARCHING) coneColor = 'rgba(255,68,0,';
         drawVisionCone(g, coneColor);
 
+        // Walk phase from actual distance moved (bob only while marching)
+        const moved = Math.hypot(g.x - (g.lastDrawX ?? g.x), g.y - (g.lastDrawY ?? g.y));
+        g.lastDrawX = g.x; g.lastDrawY = g.y;
+        g.walkPhase = (g.walkPhase || 0) + moved * 0.35;
+        const bob = moved > 0.05 ? Math.sin(g.walkPhase) : 0;
+
         const gx = g.x;
         const gy = g.y + HUD_H;
 
@@ -3107,13 +3195,14 @@
         ctx.globalAlpha = 0.25;
         ctx.fillStyle = '#000';
         ctx.beginPath();
-        ctx.ellipse(gx, gy + 10, 9, 4, 0, 0, Math.PI * 2);
+        ctx.ellipse(gx, gy + 10, 9 - Math.abs(bob), 4, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
 
         ctx.save();
-        ctx.translate(gx, gy);
+        ctx.translate(gx, gy + bob * 1.3);
         ctx.rotate(g.facing);
+        ctx.rotate(bob * 0.06); // slight body sway while walking
 
         // Body
         ctx.fillStyle = '#1a1a3e';
@@ -3222,9 +3311,28 @@
         ctx.translate(cx, cy);
         ctx.rotate(cat.facing + Math.PI / 2); // cat faces "up" in sprite
 
+        // Hacking: kneading hop on the keyboard
+        if (cat.hacking) {
+            ctx.translate(0, -Math.abs(Math.sin(cat.animTimer * 9)) * 3);
+            ctx.rotate(Math.sin(cat.animTimer * 18) * 0.06);
+        }
+
         // Body (oval) - orange/white calico
         const bodyW = cat.sneaking ? 8 : 10;
         const bodyH = cat.sneaking ? 11 : 13;
+
+        // Paws — stepping walk cycle (diagonal pairs), kneading when hacking
+        if (cat.moving || cat.hacking) {
+            const ph = cat.hacking ? cat.animTimer * 12 : cat.walkPhase;
+            const stride = cat.hacking ? 2 : 3.5;
+            const a = Math.sin(ph) * stride;
+            const b = Math.sin(ph + Math.PI) * stride;
+            ctx.fillStyle = '#E88B10';
+            ctx.beginPath(); ctx.ellipse(-bodyW + 1, -6 + a, 2.2, 3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(bodyW - 1, -6 + b, 2.2, 3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(-bodyW + 1, 7 + b, 2.2, 3, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(bodyW - 1, 7 + a, 2.2, 3, 0, 0, Math.PI * 2); ctx.fill();
+        }
 
         ctx.fillStyle = '#F5A623';
         ctx.beginPath();
@@ -3249,10 +3357,12 @@
         ctx.ellipse(4, -2, 2.5, 3, -0.2, 0, Math.PI * 2);
         ctx.fill();
 
-        // Ears
+        // Ears (left ear twitches periodically when idle)
+        const twitch = cat.moving ? 0 :
+            Math.pow(Math.max(0, Math.sin(cat.animTimer * 0.9)), 24) * 2.5;
         ctx.fillStyle = '#F5A623';
         ctx.beginPath();
-        ctx.moveTo(-5, -11); ctx.lineTo(-2, -17); ctx.lineTo(1, -11);
+        ctx.moveTo(-5, -11); ctx.lineTo(-2 - twitch, -17 + twitch * 0.6); ctx.lineTo(1, -11);
         ctx.fill();
         ctx.stroke();
         ctx.beginPath();
@@ -3508,6 +3618,22 @@
             ctx.fillRect(px + 6, py + 8, 5, 4);
         }
 
+        // Fading paw prints
+        for (const pp of pawPrints) {
+            const a = Math.max(0, 0.3 - pp.age * 0.22);
+            if (a <= 0) continue;
+            ctx.save();
+            ctx.globalAlpha = a;
+            ctx.fillStyle = '#000';
+            ctx.translate(pp.x, pp.y + HUD_H);
+            ctx.rotate(pp.angle + Math.PI / 2);
+            ctx.beginPath(); ctx.ellipse(0, 0, 2, 2.6, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(-1.6, -3, 0.9, 1.1, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(0, -3.6, 0.9, 1.1, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.ellipse(1.6, -3, 0.9, 1.1, 0, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        }
+
         // Draw noise rings
         drawNoiseRings();
 
@@ -3563,6 +3689,41 @@
             ctx.textAlign = 'right';
             ctx.fillText('CATNIP: ' + Math.ceil(catnipTimer) + 's', CANVAS_W - 8, HUD_H + 48);
             ctx.restore();
+        }
+
+        // Burst particles (above lighting so they read bright)
+        for (const p of particles) {
+            ctx.globalAlpha = Math.max(0, 1 - p.age / p.life);
+            ctx.fillStyle = p.color;
+            if (p.text) {
+                ctx.font = 'bold ' + Math.round(p.size * 4) + 'px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(p.text, p.x, p.y + HUD_H);
+            } else {
+                ctx.fillRect(p.x - p.size / 2, p.y + HUD_H - p.size / 2, p.size, p.size);
+            }
+        }
+        ctx.globalAlpha = 1;
+
+        // Exit compass — bobbing arrow around the cat once all hacks are done
+        if (exitPos && objectives.length && objectives.every(o => o.hacked)) {
+            const dist = Math.hypot(exitPos.x - cat.x, exitPos.y - cat.y);
+            if (dist > TILE * 3) {
+                const ang = Math.atan2(exitPos.y - cat.y, exitPos.x - cat.x);
+                const bobA = Math.sin(Date.now() / 150) * 3;
+                ctx.save();
+                ctx.translate(
+                    cat.x + Math.cos(ang) * (24 + bobA),
+                    cat.y + HUD_H + Math.sin(ang) * (24 + bobA)
+                );
+                ctx.rotate(ang);
+                ctx.fillStyle = 'rgba(247,147,26,0.9)';
+                ctx.beginPath();
+                ctx.moveTo(9, 0); ctx.lineTo(-4, -5); ctx.lineTo(-4, 5);
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
         }
 
         // Floating BTC gain numbers
