@@ -299,7 +299,7 @@ const moonGroup = new THREE.Group();
         new THREE.SphereGeometry(6.8, 24, 24),
         new THREE.MeshBasicMaterial({ color: 0xe8e2ff, fog: false })
     );
-    moon.position.set(-27, 31, 74);
+    moon.position.set(27, 31, 74); // +X = screen-left (camera looks +Z)
     moonGroup.add(moon);
     for (const [r, op] of [[8.4, 0.16], [10.6, 0.07], [13.4, 0.03]]) {
         const halo = new THREE.Mesh(
@@ -444,7 +444,7 @@ const skyBeams = [];
     beamGeo.translate(0, 37.5, 0);
     const cols = [0xc4a8ff, 0xff9ad5, 0xaef7ff];
     // two beams cross up near the moon like the reference shot, one far right
-    const px = [-44, -14, 36], pz = [70, 78, 84];
+    const px = [44, 14, -36], pz = [70, 78, 84];
     for (let i = 0; i < 3; i++) {
         const b = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
             color: cols[i], transparent: true, opacity: 0.075, fog: false,
@@ -768,7 +768,7 @@ const facadeMat = new THREE.MeshLambertMaterial({ color: 0x241f38 });
 // wet roof: standard material + sky env map = view-dependent neon-noir reflections
 // (only the slabs pay for it; everything else stays Lambert/Basic)
 const roofMat = new THREE.MeshStandardMaterial({
-    map: roofTexture, envMap: skyEnvTex, metalness: 0.52, roughness: 0.3, envMapIntensity: 1.2
+    map: roofTexture, envMap: skyEnvTex, metalness: 0.5, roughness: 0.4, envMapIntensity: 0.6
 });
 const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
 const sideEdgeMat = new THREE.MeshBasicMaterial({ color: 0x00c2e8 });
