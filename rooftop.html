@@ -1,0 +1,2136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Tibane 3D — Rooftop Run</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+    body { background: #0b0817; overflow: hidden; font-family: 'Courier New', monospace; height: 100dvh; }
+    canvas { display: block; touch-action: none; position: fixed; inset: 0; z-index: 1; }
+    /* real dexscreener iframe lives BEHIND the transparent WebGL canvas;
+       an alpha-hole is punched in the canvas where the jumbotron sits */
+    #css3d { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+
+    #hud {
+        position: fixed; top: 10px; left: 12px; z-index: 10;
+        color: #f7931a; font-size: 14px; line-height: 1.6;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
+        pointer-events: none;
+    }
+    #hud .poc { color: #888; font-size: 11px; }
+    #hud b { color: #fff; }
+    #mcap {
+        position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+        color: #f7931a; font-size: 15px; font-weight: bold; z-index: 10; text-align: center;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.9); pointer-events: none; white-space: nowrap;
+    }
+    #mcap b { color: #fff; }
+    #status {
+        position: fixed; top: 32px; left: 50%; transform: translateX(-50%);
+        color: #aaa; font-size: 13px; z-index: 10; text-align: center;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.9); pointer-events: none;
+        max-width: 70vw;
+    }
+    #hint {
+        position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+        color: #666; font-size: 12px; z-index: 10; text-align: center;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.9); pointer-events: none;
+        white-space: nowrap;
+    }
+    #hint span { color: #f7931a; }
+    #flash {
+        position: fixed; inset: 0; background: #f00; opacity: 0;
+        pointer-events: none; z-index: 20; transition: opacity 0.15s;
+    }
+    #overlay {
+        position: fixed; inset: 0; z-index: 30;
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        background: rgba(5, 3, 12, 0.72); text-align: center;
+    }
+    #overlay h1 {
+        color: #f7931a; font-size: clamp(26px, 6vw, 48px);
+        text-shadow: 0 0 24px rgba(247,147,26,0.6); margin-bottom: 10px;
+    }
+    #overlay .sub { color: #aaa; font-size: clamp(12px, 3vw, 16px); margin-bottom: 6px; }
+    #overlay .go { color: #4ade80; font-size: clamp(13px, 3vw, 17px); margin-top: 16px; }
+
+    /* touch controls */
+    #steerZone {
+        position: fixed; left: 0; bottom: 0; width: 45%; height: 45%;
+        z-index: 15; display: none; touch-action: none;
+    }
+    #btnJump {
+        position: fixed; bottom: 36px; right: 28px; width: 84px; height: 84px;
+        border-radius: 50%; border: 2px solid rgba(247,147,26,0.55); color: #f7931a;
+        background: rgba(247,147,26,0.1); font-size: 14px; font-weight: bold;
+        line-height: 80px; text-align: center; z-index: 15; display: none;
+        font-family: 'Courier New', monospace; touch-action: none;
+    }
+    #btnSlide {
+        position: fixed; bottom: 36px; right: 126px; width: 72px; height: 72px;
+        border-radius: 50%; border: 2px solid rgba(0,229,255,0.5); color: #00e5ff;
+        background: rgba(0,229,255,0.08); font-size: 12px; font-weight: bold;
+        line-height: 68px; text-align: center; z-index: 15; display: none;
+        font-family: 'Courier New', monospace; touch-action: none;
+    }
+    @media (hover: none) and (pointer: coarse) {
+        #steerZone, #btnJump, #btnSlide { display: block; }
+        #hint { display: none; }
+    }
+</style>
+<script type="importmap">{ "imports": { "three": "./lib/three.module.js" } }</script>
+</head>
+<body>
+<div id="hud">
+    <div class="poc">TIBANE 3D — ROOFTOP RUN &middot; the getaway</div>
+    <div><b id="distTxt">0</b>m &nbsp; BTC: <b id="btcTxt">0</b> &nbsp; best: <span id="bestTxt">0</span>m &nbsp; <span id="comboTxt" style="color:#4ade80;"></span> <span id="fps" style="color:#555;font-size:11px;"></span></div>
+    <div><span id="powTxt" style="color:#7cff00;font-size:12px;"></span></div>
+</div>
+<div id="mcap"></div>
+<div id="status"></div>
+<div id="hint"><span>A/D</span> steer &nbsp; <span>SPACE</span> jump &times;3 &middot; hold = higher &middot; third = flip &nbsp; <span>S</span> slide / dive &nbsp; <span>R</span> restart</div>
+<div id="flash"></div>
+<div id="overlay">
+    <h1>TIBANE: ROOFTOP RUN</h1>
+    <div class="sub">the heist is done. the cops are coming.</div>
+    <div class="sub" style="color:#666;">850,000 BTC in the bag. don't drop it.</div>
+    <div class="go" id="goTxt">press any key / tap to RUN</div>
+</div>
+<div id="steerZone"></div>
+<div id="btnJump">JUMP</div>
+<div id="btnSlide">SLIDE</div>
+<div id="css3d"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { CSS3DRenderer, CSS3DObject } from './lib/CSS3DRenderer.js';
+
+// =========================================================================
+// AUDIO
+// =========================================================================
+let AC = null;
+function initAudio() {
+    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === 'suspended') AC.resume();
+}
+function tone(freq, dur, type, vol, freqEnd) {
+    if (!AC) return;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = type || 'sine';
+    const t = AC.currentTime;
+    o.frequency.setValueAtTime(freq, t);
+    if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+    g.gain.setValueAtTime(vol || 0.15, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.start(t); o.stop(t + dur);
+}
+function note(freq, dur, when, type, vol) {
+    if (!AC) return;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(AC.destination);
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(freq, when);
+    g.gain.setValueAtTime(vol || 0.06, when);
+    g.gain.exponentialRampToValueAtTime(0.001, when + dur);
+    o.start(when); o.stop(when + dur);
+}
+let musicInterval = null;
+function startMusic() {
+    if (musicInterval || !AC) return;
+    const bd = 60 / 132;
+    const bass = [65.4, 65.4, 77.8, 65.4, 61.7, 61.7, 73.4, 82.4];
+    const arp = [261.6, 311.1, 392, 466.2, 392, 311.1];
+    function bar() {
+        if (!AC) return;
+        const t0 = AC.currentTime + 0.02;
+        for (let i = 0; i < 8; i++) {
+            note(bass[i], bd * 0.42, t0 + i * bd, 'sawtooth', 0.055);
+            note(2000, 0.03, t0 + i * bd + bd / 2, 'square', 0.015); // hat
+        }
+        for (let i = 0; i < 6; i++) {
+            note(arp[i], bd * 0.3, t0 + i * bd * (8 / 6), 'square', 0.02);
+        }
+    }
+    bar();
+    musicInterval = setInterval(bar, bd * 8 * 1000);
+}
+function stopMusic() {
+    if (musicInterval) { clearInterval(musicInterval); musicInterval = null; }
+}
+let thumpInterval = null;
+function startThump() {
+    if (thumpInterval || !AC) return;
+    thumpInterval = setInterval(() => tone(52, 0.09, 'sawtooth', 0.09, 40), 190);
+}
+function stopThump() {
+    if (thumpInterval) { clearInterval(thumpInterval); thumpInterval = null; }
+}
+['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, initAudio));
+
+// =========================================================================
+// RENDERER / SCENE
+// =========================================================================
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.4;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x150c28, 0.0145);
+
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 160);
+
+// CSS3D layer: a pool of TWO persistent dexscreener iframes riding the two
+// nearest jumbotrons ahead — a live chart is almost always on screen
+const cssRenderer = new CSS3DRenderer({ element: document.getElementById('css3d') });
+cssRenderer.setSize(innerWidth, innerHeight);
+const cssScene = new THREE.Scene();
+function makeJumbo() {
+    const el = document.createElement('div');
+    el.style.cssText = 'width:800px;height:450px;background:#0b0e11;overflow:hidden;';
+    const fr = document.createElement('iframe');
+    fr.style.cssText = 'width:100%;height:100%;border:0;pointer-events:none;';
+    el.appendChild(fr);
+    const obj = new CSS3DObject(el);
+    obj.scale.setScalar(0.0125); // 800x450 px -> 10 x 5.625 world units
+    obj.visible = false;
+    cssScene.add(obj);
+    return { el, fr, obj };
+}
+const jumbos = [makeJumbo(), makeJumbo()];
+let chartEmbedUrl = null; // resolved from DexScreener; iframes lazy-load it when close
+
+addEventListener('resize', () => {
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth, innerHeight);
+    cssRenderer.setSize(innerWidth, innerHeight);
+});
+
+const hemi = new THREE.HemisphereLight(0x6f57b8, 0x1c1428, 6.4);
+scene.add(hemi);
+
+// zone palettes — the city changes district every 500m
+const ZONES = [
+    { fog: new THREE.Color(0x150c28), sky: new THREE.Color(0xffffff), hemi: new THREE.Color(0x6f57b8), name: 'SHIBUYA' },
+    { fog: new THREE.Color(0x0c2024), sky: new THREE.Color(0x9adfdf), hemi: new THREE.Color(0x4f8fa8), name: 'THE INDUSTRIAL WARD' },
+    { fog: new THREE.Color(0x260d1a), sky: new THREE.Color(0xffaebf), hemi: new THREE.Color(0xa85f78), name: 'THE RED DISTRICT' },
+    { fog: new THREE.Color(0x101226), sky: new THREE.Color(0xa8b8ff), hemi: new THREE.Color(0x5f6fb8), name: 'GOX TOWER BLOCKS' }
+];
+let zoneIdx = 0;
+const moonLight = new THREE.DirectionalLight(0x9db4ff, 2.5);
+moonLight.position.set(-8, 14, -6);
+scene.add(moonLight);
+// warm street-glow that rides with the cat — lights the roof under you
+const catLight = new THREE.PointLight(0xffb36b, 9, 8, 1.8);
+scene.add(catLight);
+
+// moon rides with the camera so it never gets passed
+const moonGroup = new THREE.Group();
+{
+    const moon = new THREE.Mesh(
+        new THREE.SphereGeometry(5, 24, 24),
+        new THREE.MeshBasicMaterial({ color: 0xf5f0e0, fog: false })
+    );
+    moon.position.set(26, 26, 70);
+    moonGroup.add(moon);
+    const halo = new THREE.Mesh(
+        new THREE.SphereGeometry(6.6, 24, 24),
+        new THREE.MeshBasicMaterial({ color: 0xf5f0e0, transparent: true, opacity: 0.14, fog: false })
+    );
+    halo.position.copy(moon.position);
+    moonGroup.add(halo);
+}
+scene.add(moonGroup);
+
+// sky dome: gradient night + stars + far skyline silhouette (equirect: horizon = v 0.5)
+let skyMat;
+{
+    const c = document.createElement('canvas');
+    c.width = 1024; c.height = 512;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#050310');
+    grad.addColorStop(0.55, '#170b30');
+    grad.addColorStop(0.85, '#3c1850');
+    grad.addColorStop(1, '#82345e');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 1024, 256);
+    g.fillStyle = '#0a0514';
+    g.fillRect(0, 256, 1024, 256);
+    for (let i = 0; i < 420; i++) {
+        g.fillStyle = 'rgba(255,255,255,' + (0.2 + Math.random() * 0.6).toFixed(2) + ')';
+        g.fillRect(Math.random() * 1024, Math.random() * 185, Math.random() < 0.12 ? 2 : 1, Math.random() < 0.12 ? 2 : 1);
+    }
+    let sx = 0;
+    while (sx < 1024) {
+        const bw = 16 + Math.random() * 40;
+        const bh = 16 + Math.random() * 58;
+        g.fillStyle = '#0c0618';
+        g.fillRect(sx, 256 - bh, bw, bh + 4);
+        g.fillStyle = 'rgba(255,214,140,0.55)';
+        for (let wx = sx + 3; wx < sx + bw - 3; wx += 7) {
+            if (Math.random() < 0.2) g.fillRect(wx, 256 - bh + 4 + Math.random() * (bh - 10), 2, 3);
+        }
+        sx += bw + 2;
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    skyMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false });
+    const sky = new THREE.Mesh(new THREE.SphereGeometry(115, 28, 18), skyMat);
+    sky.renderOrder = -2;
+    moonGroup.add(sky);
+    // street canyon glow far below
+    const glow = new THREE.Mesh(
+        new THREE.PlaneGeometry(260, 260),
+        new THREE.MeshBasicMaterial({ color: 0x1c0d2e }));
+    glow.rotation.x = -Math.PI / 2;
+    glow.position.y = -9;
+    glow.renderOrder = -1;
+    moonGroup.add(glow);
+}
+
+// neon rain — one instanced draw call
+const RAIN_N = 170;
+let rainMesh, rainP;
+{
+    const rGeo = new THREE.BoxGeometry(0.016, 0.55, 0.016);
+    const rMat = new THREE.MeshBasicMaterial({ color: 0x9fc4e8, transparent: true, opacity: 0.28 });
+    rainMesh = new THREE.InstancedMesh(rGeo, rMat, RAIN_N);
+    rainMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    rainMesh.frustumCulled = false;
+    scene.add(rainMesh);
+    rainP = new Float32Array(RAIN_N * 3);
+    for (let i = 0; i < RAIN_N; i++) {
+        rainP[i * 3] = (Math.random() - 0.5) * 46;
+        rainP[i * 3 + 1] = Math.random() * 18;
+        rainP[i * 3 + 2] = Math.random() * 58;
+    }
+}
+const _rm4 = new THREE.Matrix4();
+
+// $CHIEFPUSSY blimp cruising the skyline
+let blimp;
+{
+    blimp = new THREE.Group();
+    const hull = new THREE.Mesh(new THREE.SphereGeometry(2.4, 14, 10),
+        new THREE.MeshLambertMaterial({ color: 0x2a2440 }));
+    hull.scale.set(1, 0.4, 0.4);
+    blimp.add(hull);
+    const gondola = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.35),
+        new THREE.MeshLambertMaterial({ color: 0x171226 }));
+    gondola.position.y = -1.05;
+    blimp.add(gondola);
+    const bc = document.createElement('canvas');
+    bc.width = 512; bc.height = 96;
+    const bg = bc.getContext('2d');
+    bg.fillStyle = '#12101f';
+    bg.fillRect(0, 0, 512, 96);
+    bg.fillStyle = '#f7931a';
+    bg.font = 'bold 56px monospace';
+    bg.textAlign = 'center';
+    bg.fillText('$CHIEFPUSSY', 256, 66);
+    const bTex = new THREE.CanvasTexture(bc);
+    bTex.colorSpace = THREE.SRGBColorSpace;
+    for (const s of [-1, 1]) {
+        const bp = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.8),
+            new THREE.MeshBasicMaterial({ map: bTex }));
+        bp.position.set(0, 0.05, s * 1.0);
+        bp.rotation.y = s < 0 ? Math.PI : 0;
+        blimp.add(bp);
+    }
+    blimp.position.set(-32, 24, 82);
+    moonGroup.add(blimp);
+}
+
+// city searchlights sweeping the sky
+const skyBeams = [];
+{
+    const beamGeo = new THREE.ConeGeometry(2.4, 75, 10, 1, true);
+    beamGeo.rotateX(Math.PI);
+    beamGeo.translate(0, 37.5, 0);
+    const cols = [0x8fd0ff, 0xff9ad5, 0xaef7ff];
+    const px = [-40, 34, 12], pz = [72, 88, 55];
+    for (let i = 0; i < 3; i++) {
+        const b = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
+            color: cols[i], transparent: true, opacity: 0.055, fog: false,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+        }));
+        b.position.set(px[i], -6, pz[i]);
+        moonGroup.add(b);
+        skyBeams.push(b);
+    }
+}
+
+// =========================================================================
+// POLICE CHOPPER — shows up and stays on your tail
+// =========================================================================
+const chopper = new THREE.Group();
+let rotor, chopperOn = false;
+{
+    const navy = new THREE.MeshLambertMaterial({ color: 0x14143a });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.7, 14, 12), navy);
+    body.scale.set(1, 0.75, 1.5);
+    chopper.add(body);
+    const tail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 1.7), navy);
+    tail.position.set(0, 0.1, -1.5);
+    chopper.add(tail);
+    const glass = new THREE.Mesh(new THREE.SphereGeometry(0.4, 10, 10),
+        new THREE.MeshBasicMaterial({ color: 0x88bbee }));
+    glass.scale.set(0.9, 0.7, 0.9);
+    glass.position.set(0, 0.15, 0.55);
+    chopper.add(glass);
+    rotor = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.05, 0.22),
+        new THREE.MeshLambertMaterial({ color: 0x333340 }));
+    rotor.position.y = 0.75;
+    chopper.add(rotor);
+    // red strobe
+    const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0xff2222 }));
+    strobe.position.set(0, 0.55, -0.3);
+    chopper.add(strobe);
+    chopper.userData.strobe = strobe;
+    // searchlight beam (volumetric cone pointing down)
+    const beamGeo = new THREE.ConeGeometry(1.9, 7, 18, 1, true);
+    beamGeo.translate(0, -3.5, 0);
+    const beam = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
+        color: 0xfff2cc, transparent: true, opacity: 0.13,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    }));
+    beam.position.y = -0.3;
+    chopper.add(beam);
+    const spot = new THREE.SpotLight(0xfff2cc, 60, 14, 0.5, 0.5, 1.2);
+    spot.position.set(0, -0.2, 0);
+    const tgt = new THREE.Object3D();
+    tgt.position.set(0, -7, 0.5);
+    chopper.add(tgt);
+    spot.target = tgt;
+    chopper.add(spot);
+    chopper.userData.beam = beam;
+    chopper.userData.spot = spot;
+}
+chopper.visible = false;
+scene.add(chopper);
+
+// wind streaks (visible at high speed)
+const streaks = [];
+{
+    const sGeo = new THREE.BoxGeometry(0.03, 0.03, 2.6);
+    const sMat = new THREE.MeshBasicMaterial({ color: 0xbfd4ff, transparent: true, opacity: 0 });
+    for (let i = 0; i < 26; i++) {
+        const s = new THREE.Mesh(sGeo, sMat);
+        s.position.set(0, 0, -100);
+        scene.add(s);
+        streaks.push(s);
+    }
+    streaks.mat = sMat;
+}
+
+// tiny particle pool (banner smash, pad launch, landings)
+const parts = [];
+{
+    const pGeo = new THREE.BoxGeometry(0.09, 0.09, 0.09);
+    for (let i = 0; i < 70; i++) {
+        const p = new THREE.Mesh(pGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        p.visible = false;
+        p.userData = { vx: 0, vy: 0, vz: 0, life: 0 };
+        scene.add(p);
+        parts.push(p);
+    }
+}
+let partIdx = 0;
+function burst(x, y, z, color, n, spd) {
+    for (let i = 0; i < n; i++) {
+        const p = parts[partIdx = (partIdx + 1) % parts.length];
+        p.visible = true;
+        p.material.color.set(color);
+        p.position.set(x, y, z);
+        p.userData.vx = (Math.random() - 0.5) * spd;
+        p.userData.vy = Math.random() * spd * 0.8;
+        p.userData.vz = (Math.random() - 0.5) * spd;
+        p.userData.life = 0.5 + Math.random() * 0.4;
+    }
+}
+
+// banner texture ($CHIEFPUSSY paper banner you smash through)
+const bannerTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = 512; c.height = 96;
+    const g = c.getContext('2d');
+    g.fillStyle = '#f7931a';
+    g.fillRect(0, 0, 512, 96);
+    g.fillStyle = '#0a0a12';
+    g.font = 'bold 52px monospace';
+    g.textAlign = 'center';
+    g.fillText('$CHIEFPUSSY', 256, 64);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+})();
+const bannerMat = new THREE.MeshBasicMaterial({ map: bannerTex, side: THREE.DoubleSide });
+const crumbleEdgeMat = new THREE.MeshBasicMaterial({ color: 0xff5522 });
+const padMat = new THREE.MeshBasicMaterial({ color: 0x7cff00 });
+
+// =========================================================================
+// SHARED ASSETS
+// =========================================================================
+const signTexCache = {};
+function signTexture(text, color) {
+    const key = text + color;
+    if (signTexCache[key]) return signTexCache[key];
+    const c = document.createElement('canvas');
+    c.width = 96; c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0a0a12';
+    g.fillRect(0, 0, 96, 256);
+    g.strokeStyle = color;
+    g.lineWidth = 5;
+    g.strokeRect(5, 5, 86, 246);
+    g.fillStyle = color;
+    g.font = 'bold 52px sans-serif';
+    g.textAlign = 'center';
+    const chars = [...text];
+    const step = Math.min(56, 220 / chars.length);
+    chars.forEach((ch, i) => g.fillText(ch, 48, 55 + i * step));
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    signTexCache[key] = tex;
+    return tex;
+}
+const SIGN_TEXTS = ['ネコ', '寿司', '質屋', '酒場', 'カフェ', '猫', 'GOX', 'ラーメン', 'パチンコ'];
+const SIGN_COLORS = ['#ff2d95', '#00e5ff', '#ffe600', '#7cff00', '#ff6a00', '#a78bfa'];
+const signGeo = new THREE.PlaneGeometry(0.8, 2.3);
+const signMats = {};
+function signMat(text, color) {
+    const key = text + color;
+    if (!signMats[key]) signMats[key] = new THREE.MeshBasicMaterial({ map: signTexture(text, color) });
+    return signMats[key];
+}
+
+// lit-window texture for towers (unlit material = cheap)
+function windowTexture(seed) {
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0d0b18';
+    g.fillRect(0, 0, 64, 128);
+    let s = seed;
+    const r = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let y = 4; y < 124; y += 10) {
+        for (let x = 4; x < 60; x += 9) {
+            if (r() < 0.24) {
+                g.fillStyle = ['#ffe9a8', '#aef0ff', '#ffd0e8'][(r() * 3) | 0];
+                g.fillRect(x, y, 5, 6);
+            }
+        }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+}
+const towerMats = [1, 2, 3, 4].map(s => new THREE.MeshBasicMaterial({ map: windowTexture(s * 7919) }));
+
+// wide window texture for the run-building facades (the face you jump toward)
+function facadeTexture(seed) {
+    const c = document.createElement('canvas');
+    c.width = 256; c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = '#1b1530';
+    g.fillRect(0, 0, 256, 128);
+    let s = seed;
+    const r = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    for (let y = 6; y < 122; y += 12) {
+        for (let x = 6; x < 250; x += 11) {
+            if (r() < 0.26) {
+                g.fillStyle = ['#ffe9a8', '#aef0ff', '#ffd0e8', '#c9b8ff'][(r() * 4) | 0];
+                g.fillRect(x, y, 6, 7);
+            } else if (r() < 0.3) {
+                g.fillStyle = '#241d3e';
+                g.fillRect(x, y, 6, 7);
+            }
+        }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+}
+const facadeMats = [3, 17, 29, 41].map(s => new THREE.MeshBasicMaterial({ map: facadeTexture(s * 104729) }));
+
+// rooftop concrete texture (panel seams + grime) so slabs aren't flat color
+const roofTexture = (() => {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = '#2c2645';
+    g.fillRect(0, 0, 128, 128);
+    // speckle grime only — hard lines stretch into stripes on the shared unit box
+    for (let i = 0; i < 520; i++) {
+        g.fillStyle = Math.random() < 0.6 ? 'rgba(0,0,0,0.13)' : 'rgba(255,255,255,0.035)';
+        g.fillRect(Math.random() * 128, Math.random() * 128, 1 + Math.random() * 3, 1 + Math.random() * 3);
+    }
+    for (let i = 0; i < 7; i++) {
+        g.fillStyle = 'rgba(0,0,0,0.09)';
+        g.beginPath();
+        g.arc(Math.random() * 128, Math.random() * 128, 6 + Math.random() * 12, 0, 7);
+        g.fill();
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+})();
+
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+const facadeMat = new THREE.MeshLambertMaterial({ color: 0x241f38 });
+const roofMat = new THREE.MeshLambertMaterial({ map: roofTexture });
+const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
+const sideEdgeMat = new THREE.MeshBasicMaterial({ color: 0x0a7a94 });
+const tankMat = new THREE.MeshLambertMaterial({ color: 0x4a3f66 });
+const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff3344 });
+const beaconGeo = new THREE.SphereGeometry(0.16, 8, 8);
+
+// tibane lore posters — REAL photos ripped from tibane.net/lore gallery,
+// cover-cropped square with a caption bar; first photo also becomes the memorial
+const LORE_PICS = ['IMG_4368', 'IMG_4722', 'IMG_0414', 'IMG_1130', 'IMG_1360', 'IMG_2942', 'IMG_4592', '2015-04-27_16.56.35'];
+const posterMats = [];
+let memorialMat = null;
+{
+    const loader = new THREE.ImageLoader();
+    LORE_PICS.forEach((name, idx) => {
+        const c = document.createElement('canvas');
+        c.width = 512; c.height = 512;
+        const g = c.getContext('2d');
+        g.fillStyle = '#191426';
+        g.fillRect(0, 0, 512, 512);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        posterMats.push(new THREE.MeshBasicMaterial({ map: tex }));
+        loader.load('./assets/lore/' + name + '.jpg', img => {
+            const s = Math.min(img.width, img.height);
+            g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 512, 512);
+            g.fillStyle = 'rgba(10,8,18,0.82)';
+            g.fillRect(0, 448, 512, 64);
+            g.fillStyle = '#f7931a';
+            g.font = 'bold 34px monospace';
+            g.textAlign = 'center';
+            g.fillText('TIBANE THECAT', 256, 492);
+            tex.needsUpdate = true;
+            if (idx === 0) {
+                const mc = document.createElement('canvas');
+                mc.width = 512; mc.height = 640;
+                const mg = mc.getContext('2d');
+                mg.fillStyle = '#0d0a18';
+                mg.fillRect(0, 0, 512, 640);
+                mg.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 32, 32, 448, 448);
+                mg.strokeStyle = '#f7931a';
+                mg.lineWidth = 4;
+                mg.strokeRect(32, 32, 448, 448);
+                mg.fillStyle = '#fff';
+                mg.font = 'bold 40px monospace';
+                mg.textAlign = 'center';
+                mg.fillText('IN MEMORIAM', 256, 538);
+                mg.fillStyle = '#f7931a';
+                mg.font = 'bold 34px monospace';
+                mg.fillText('TIBANE 2007–2019', 256, 586);
+                mg.fillStyle = '#999';
+                mg.font = '22px monospace';
+                mg.fillText('rest in peace', 256, 622);
+                const mtex = new THREE.CanvasTexture(mc);
+                mtex.colorSpace = THREE.SRGBColorSpace;
+                memorialMat = new THREE.MeshBasicMaterial({ map: mtex });
+            }
+        });
+    });
+}
+const posterGeo = new THREE.PlaneGeometry(3, 3);
+const memorialGeo = new THREE.PlaneGeometry(3.2, 4);
+
+// rooftop water tower (visual dressing on towers)
+function waterTower() {
+    const wt = new THREE.Group();
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 1.25, 10), tankMat);
+    tank.position.y = 1.1;
+    wt.add(tank);
+    const lid = new THREE.Mesh(new THREE.ConeGeometry(0.95, 0.55, 10), facadeMat);
+    lid.position.y = 2;
+    wt.add(lid);
+    for (const [lx, lz] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) {
+        const leg = new THREE.Mesh(boxGeo, antennaMat);
+        leg.scale.set(0.09, 1, 0.09);
+        leg.position.set(lx, 0.5, lz);
+        wt.add(leg);
+    }
+    return wt;
+}
+const acMat = new THREE.MeshLambertMaterial({ color: 0x8a8a98 });
+const antennaMat = new THREE.MeshLambertMaterial({ color: 0x555560 });
+const ductMat = new THREE.MeshLambertMaterial({ color: 0x7a8296 });
+const ductWarnMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+const glowPanelMats = [0x14505e, 0x5e1448, 0x4e4614].map(c => new THREE.MeshBasicMaterial({ color: c }));
+const birdMat = new THREE.MeshLambertMaterial({ color: 0x1a1626 });
+const coinMat = new THREE.MeshBasicMaterial({ color: 0xf7931a });
+const coinGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.07, 18);
+
+// powerups: color-coded floating octahedron + additive halo ring
+const POW_DEFS = {
+    magnet: { color: 0xff4455, label: 'MAGNET', dur: 10 },
+    catnip: { color: 0x39d353, label: 'CATNIP!', dur: 6 },
+    x2:     { color: 0xffd24a, label: 'x2 BTC', dur: 12 }
+};
+const powGeo = new THREE.OctahedronGeometry(0.3);
+const powRingGeo = new THREE.TorusGeometry(0.5, 0.05, 8, 20);
+const powMats = {}, powRingMats = {};
+for (const k in POW_DEFS) {
+    powMats[k] = new THREE.MeshBasicMaterial({ color: POW_DEFS[k].color });
+    powRingMats[k] = new THREE.MeshBasicMaterial({
+        color: POW_DEFS[k].color, transparent: true, opacity: 0.45,
+        blending: THREE.AdditiveBlending, depthWrite: false
+    });
+}
+
+// live $CHIEFPUSSY data — market cap HUD top center (house pattern, 30s poll)
+// + resolves the pair for the in-world dexscreener jumbotrons. no canvas charts.
+{
+    const CA = 'DRtvTCzfiKGhCVREmBbZdN9sB8PHeq9KdRZ3VmFhpump';
+    const mcapEl = document.getElementById('mcap');
+    function fmtUsd(n) {
+        if (!n) return 'N/A';
+        if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+        if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+        return '$' + (n / 1e3).toFixed(1) + 'K';
+    }
+    async function refreshMcap() {
+        try {
+            const r = await fetch('https://api.dexscreener.com/latest/dex/tokens/' + CA);
+            const d = await r.json();
+            const pair = d.pairs?.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+            if (!pair) throw 0;
+            chartEmbedUrl = 'https://dexscreener.com/solana/' + pair.pairAddress +
+                '?embed=1&theme=dark&trades=0&info=0';
+            const chg = parseFloat(pair.priceChange?.h24);
+            mcapEl.innerHTML = '$CHIEFPUSSY <b>' + fmtUsd(pair.marketCap || pair.fdv) + '</b>' +
+                (isNaN(chg) ? '' : ' <span style="color:' + (chg >= 0 ? '#4ade80' : '#ef5350') +
+                    '">' + (chg >= 0 ? '\u25b2' : '\u25bc') + Math.abs(chg).toFixed(1) + '%</span>');
+        } catch (e) {
+            if (!mcapEl.textContent) mcapEl.textContent = '$CHIEFPUSSY N/A';
+        }
+    }
+    refreshMcap();
+    setInterval(refreshMcap, 30000);
+}
+
+// =========================================================================
+// CAT
+// =========================================================================
+const catGroup = new THREE.Group();
+{
+    const orange = new THREE.MeshLambertMaterial({ color: 0xf5a623 });
+    const darkOrange = new THREE.MeshLambertMaterial({ color: 0xe88b10 });
+    const white = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.28, 16, 12), orange);
+    body.scale.set(1, 0.75, 1.35);
+    body.position.y = 0.26;
+    catGroup.add(body);
+
+    const chest = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), white);
+    chest.position.set(0, 0.2, 0.22);
+    catGroup.add(chest);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), orange);
+    head.position.set(0, 0.48, 0.32);
+    catGroup.add(head);
+
+    for (const s of [-1, 1]) {
+        const ear = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 8), darkOrange);
+        ear.position.set(s * 0.11, 0.76, 0.28);
+        ear.rotation.z = -s * 0.22;
+        catGroup.add(ear);
+    }
+
+    // the bag (850k BTC)
+    const bag = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 10),
+        new THREE.MeshLambertMaterial({ color: 0x8a5a2a }));
+    bag.position.set(0, 0.52, -0.12);
+    catGroup.add(bag);
+    const bagB = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.1, 0.1, 0.03, 12),
+        new THREE.MeshBasicMaterial({ color: 0xf7931a })
+    );
+    bagB.rotation.x = Math.PI / 2.4;
+    bagB.position.set(0, 0.62, -0.02);
+    catGroup.add(bagB);
+
+    catGroup.userData.tail = [];
+    for (let t = 0; t < 3; t++) {
+        const seg = new THREE.Mesh(new THREE.SphereGeometry(0.07 - t * 0.012, 8, 8), t === 2 ? white : orange);
+        seg.position.set(0, 0.32 + t * 0.09, -0.42 - t * 0.11);
+        catGroup.add(seg);
+        catGroup.userData.tail.push(seg);
+    }
+
+    catGroup.userData.legs = [];
+    for (const [lx, lz] of [[-0.14, 0.2], [0.14, 0.2], [-0.14, -0.22], [0.14, -0.22]]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.16, 8), darkOrange);
+        leg.position.set(lx, 0.08, lz);
+        catGroup.add(leg);
+        catGroup.userData.legs.push(leg);
+    }
+}
+scene.add(catGroup);
+
+// =========================================================================
+// WORLD GEN — rolling rooftops
+// =========================================================================
+let seedState = 4242;
+const srand = () => (seedState = (seedState * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+
+const roofs = [];       // { z0, z1, h, cx, w, group, props, coins, pads, banner, blink, pow }
+let genZ = 0;
+let nextPowZ = 300;     // first powerup ~150m in
+let nextJumboZ = 140;   // first dexscreener jumbotron ~70m in
+const JSTYLES = ['fwd', 'gantry', 'fwd', 'tower']; // fwd weighted — chris wants the chart in his face
+let jumboStyle = 0;     // index into JSTYLES
+const jumboSpots = [];  // {x, y, z, rotY, scale} — live iframes ride the two nearest ahead
+
+// ---- director: hand-shaped chunks with intensity pacing (Jetpack/COD-style) ----
+// every jump is guaranteed makeable: normal gaps fit a single jump (~0.55x
+// speed-distance), 'big' gaps fit a double jump (<= ~0.92x) — Canabalt rule.
+let chunkQueue = [], lastChunk = '', intensity = 0, chunksDone = 0;
+
+function gapFor(kind) {
+    const sp = run.speed;
+    if (kind === 'small') return 2.0 + srand() * 1.2;
+    if (kind === 'big') return sp * (0.6 + srand() * 0.32);
+    return Math.max(2.4, Math.min(sp * 0.55, 2.6 + srand() * (sp * 0.55 - 2.6)));
+}
+
+function pickChunk() {
+    chunksDone++;
+    if (chunksDone <= 2) return 'breather'; // guaranteed easy open after every restart
+    if (intensity >= 2) { intensity = 0; return 'breather'; }
+    const pool = ['gaps', 'technical', 'pads', 'crumble', 'gaps', 'technical'];
+    let k;
+    do { k = pool[(srand() * pool.length) | 0]; } while (k === lastChunk);
+    intensity += (k === 'pads' ? 0.5 : 1);
+    return k;
+}
+
+function queueChunk(kind) {
+    const t = Math.min(1, genZ / 2400); // difficulty tier, maxes ~1200m
+    const q = chunkQueue;
+    if (kind === 'breather') {
+        q.push({ gap: 'small', L: 16 + srand() * 8, w: 8 + srand() * 2.5, dh: 0.5,
+                 density: 0.3, duct: 0, crumbleC: 0, padC: 0.25, bannerC: 0.5, coins: 'rich' });
+    } else if (kind === 'gaps') {
+        const n = 2 + ((srand() * (2 + t * 1.5)) | 0);
+        for (let i = 0; i < n; i++) {
+            q.push({ gap: srand() < 0.2 + t * 0.3 ? 'big' : 'normal',
+                     L: 6 + srand() * (4.5 - t * 1.5), w: 5.5 + srand() * 2.5, dh: 1.3,
+                     density: 0.25, duct: 0, crumbleC: 0.08, padC: 0, bannerC: 0.05, coins: 'arcs' });
+        }
+    } else if (kind === 'technical') {
+        const n = 1 + ((srand() * 2) | 0);
+        for (let i = 0; i < n; i++) {
+            q.push({ gap: 'small', L: 12 + srand() * 5, w: 6.5 + srand() * 2.5, dh: 0.8,
+                     density: 1.3 + t * 0.7, duct: 0.4, crumbleC: 0, padC: 0.1,
+                     bannerC: 0.15, coins: 'thread' });
+        }
+    } else if (kind === 'pads') {
+        q.push({ gap: 'small', L: 12 + srand() * 4, w: 7, dh: 0.5, density: 0.3, duct: 0,
+                 crumbleC: 0, padC: 1, bannerC: 0.1, coins: 'line' });
+        q.push({ gap: 'big', L: 10 + srand() * 4, w: 7, dhAbs: 1.4 + srand() * 1.0,
+                 density: 0.4, duct: 0, crumbleC: 0, padC: 0, bannerC: 0.2, coins: 'arcs' });
+    } else { // crumble — short roofs, small gaps, each next roof DOWNHILL so the
+             // escape jump stays makeable even after the floor has dropped a bit
+        const n = 2 + (t > 0.4 && srand() < 0.5 ? 1 : 0);
+        for (let i = 0; i < n; i++) {
+            q.push({ gap: 'small', L: 7 + srand() * 2.5, w: 6 + srand() * 2,
+                     dhAbs: -(0.6 + srand() * 0.6),
+                     density: 0.15, duct: 0, crumbleC: 1, padC: 0, bannerC: 0, coins: 'line' });
+        }
+        // exit ramp: a safe normal roof clearly below the last crumbler
+        q.push({ gap: 'small', L: 12 + srand() * 4, w: 7.5, dhAbs: -1.0,
+                 density: 0.2, duct: 0, crumbleC: 0, padC: 0.2, bannerC: 0.2, coins: 'line' });
+    }
+}
+
+function genAhead() {
+    while (genZ < run.z + 130) {
+        if (!chunkQueue.length) {
+            const k = pickChunk();
+            queueChunk(k);
+            lastChunk = k;
+        }
+        makeRoof(false, chunkQueue.shift());
+    }
+}
+
+function makeRoof(first, spec = {}) {
+    const prev = roofs[roofs.length - 1];
+    const gap = first ? 0 : gapFor(spec.gap || 'normal');
+    const z0 = genZ + gap;
+    const L = first ? 34 : (spec.L || 10 + srand() * 9);
+    const w = first ? 11 : (spec.w || 5.5 + srand() * 4);
+    const cx = first ? 0 : (prev ? prev.cx : 0) + (srand() - 0.5) * 3.4;
+    let h = first ? 0 : (prev ? prev.h : 0) +
+        (spec.dhAbs !== undefined ? spec.dhAbs : (srand() - 0.5) * 2.2 * (spec.dh ?? 1));
+    h = Math.max(-1.5, Math.min(3.5, h));
+    const z1 = z0 + L;
+    const crumble = !first && srand() < (spec.crumbleC ?? 0.16);
+
+    const group = new THREE.Group();
+
+    // building body — lit windows on every face
+    const depth = 11;
+    const body = new THREE.Mesh(boxGeo, first ? facadeMat : facadeMats[(srand() * facadeMats.length) | 0]);
+    body.scale.set(w, depth, L);
+    body.position.set(cx, h - depth / 2, (z0 + z1) / 2);
+    group.add(body);
+    // roof slab
+    const slab = new THREE.Mesh(boxGeo, roofMat);
+    slab.scale.set(w, 0.12, L);
+    slab.position.set(cx, h + 0.06, (z0 + z1) / 2);
+    group.add(slab);
+    // glowing edge strips: leading + trailing edge (gap readability at speed)
+    for (const ez of [z0 + 0.08, z1 - 0.08]) {
+        const strip = new THREE.Mesh(boxGeo, crumble ? crumbleEdgeMat : edgeMat);
+        strip.scale.set(w, 0.06, 0.12);
+        strip.position.set(cx, h + 0.15, ez);
+        group.add(strip);
+    }
+    // dimmer side rails running the roof length
+    for (const s of [-1, 1]) {
+        const rail = new THREE.Mesh(boxGeo, crumble ? crumbleEdgeMat : sideEdgeMat);
+        rail.scale.set(0.1, 0.05, L - 0.3);
+        rail.position.set(cx + s * (w / 2 - 0.06), h + 0.14, (z0 + z1) / 2);
+        group.add(rail);
+    }
+    // glowing skylight panels — walk-over visual, no collision
+    if (!first && srand() < 0.5) {
+        const n = 1 + (srand() * 2 | 0);
+        for (let i = 0; i < n; i++) {
+            const pnl = new THREE.Mesh(boxGeo, glowPanelMats[(srand() * glowPanelMats.length) | 0]);
+            pnl.scale.set(0.9 + srand(), 0.02, 1.4 + srand());
+            pnl.position.set(cx + (srand() - 0.5) * (w - 2.4), h + 0.13, z0 + 2 + srand() * (L - 4));
+            group.add(pnl);
+        }
+    }
+    // pigeons — scatter when you get close (speed reference objects)
+    const birds = [];
+    if (!first && L > 10 && srand() < 0.3) {
+        const n = 2 + (srand() * 2 | 0);
+        for (let i = 0; i < n; i++) {
+            const b = new THREE.Group();
+            b.userData.wings = [];
+            for (const s of [-1, 1]) {
+                const wing = new THREE.Mesh(boxGeo, birdMat);
+                wing.scale.set(0.2, 0.02, 0.09);
+                wing.position.x = s * 0.1;
+                b.add(wing);
+                b.userData.wings.push(wing);
+            }
+            const bod = new THREE.Mesh(boxGeo, birdMat);
+            bod.scale.set(0.09, 0.09, 0.14);
+            bod.position.y = 0.03;
+            b.add(bod);
+            b.position.set(cx + (srand() - 0.5) * (w - 1.2), h + 0.06, z0 + 1.5 + srand() * (L - 3));
+            group.add(b);
+            birds.push({ g: b, flying: false,
+                vx: (srand() - 0.5) * 4, vy: 3.2 + srand() * 2.2, vz: 2.5 + srand() * 2.5 });
+        }
+    }
+
+    // neon signs on the front face (what you see while jumping toward it)
+    if (!first && srand() < 0.75) {
+        const n = 1 + (srand() * 2 | 0);
+        for (let i = 0; i < n; i++) {
+            const text = SIGN_TEXTS[(srand() * SIGN_TEXTS.length) | 0];
+            const color = SIGN_COLORS[(srand() * SIGN_COLORS.length) | 0];
+            const sign = new THREE.Mesh(signGeo, signMat(text, color));
+            sign.position.set(cx + (srand() - 0.5) * (w - 1.4), h - 1.8 - srand() * 3, z0 - 0.03);
+            sign.rotation.y = Math.PI;
+            group.add(sign);
+        }
+    }
+
+    // props (obstacles), landing zone kept clear. three families:
+    //   AC (jump it) / antenna (steer) / duct gate (slide under or steer around)
+    const props = [];
+    function propAC(px, pz) {
+        const ac = new THREE.Mesh(boxGeo, acMat);
+        ac.scale.set(1.1, 0.8, 0.9);
+        ac.position.set(px, h + 0.4, pz);
+        group.add(ac);
+        const fan = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.28, 0.28, 0.06, 12), antennaMat);
+        fan.position.set(px, h + 0.84, pz);
+        group.add(fan);
+        props.push({ x: px, z: pz, hw: 0.55, hd: 0.45, ph: 0.8, y0: 0, meshes: [ac, fan] });
+    }
+    function propAntenna(px, pz) {
+        const ant = new THREE.Mesh(boxGeo, antennaMat);
+        ant.scale.set(0.5, 2.2, 0.5);
+        ant.position.set(px, h + 1.1, pz);
+        group.add(ant);
+        const tip = new THREE.Mesh(boxGeo, edgeMat);
+        tip.scale.set(0.08, 0.08, 0.08);
+        tip.position.set(px, h + 2.25, pz);
+        group.add(tip);
+        props.push({ x: px, z: pz, hw: 0.25, hd: 0.25, ph: 2.2, y0: 0, meshes: [ant, tip] });
+    }
+    function propDuct(pz) {
+        // duct gate: bottom 0.9 (slide clears), top 1.8 (jump can't) — or steer past the end
+        const dw = Math.min(w * 0.72, 4.6);
+        const dx = cx + (srand() - 0.5) * (w - dw) * 0.9;
+        const duct = new THREE.Mesh(boxGeo, ductMat);
+        duct.scale.set(dw, 0.9, 0.55);
+        duct.position.set(dx, h + 1.35, pz);
+        group.add(duct);
+        const warn = new THREE.Mesh(boxGeo, ductWarnMat);
+        warn.scale.set(dw, 0.06, 0.58);
+        warn.position.set(dx, h + 0.92, pz);
+        group.add(warn);
+        const meshes = [duct, warn];
+        for (const s of [-1, 1]) {
+            const leg = new THREE.Mesh(boxGeo, antennaMat);
+            leg.scale.set(0.14, 0.9, 0.14);
+            leg.position.set(dx + s * (dw / 2 - 0.1), h + 0.45, pz);
+            group.add(leg);
+            meshes.push(leg);
+        }
+        props.push({ x: dx, z: pz, hw: dw / 2, hd: 0.28, ph: 1.8, y0: 0.9, duct: true, meshes });
+    }
+    function propsFor(density, ductChance) {
+        const n = Math.min(4, Math.max(0, Math.round((L / 6) * density)));
+        const placed = [];
+        for (let i = 0; i < n; i++) {
+            // min spacing between hazards — "MIN INTERVALS = UNFAIR"
+            let pz = 0, ok = false;
+            for (let a = 0; a < 8 && !ok; a++) {
+                pz = z0 + 3.5 + srand() * (L - 6);
+                ok = placed.every(q => Math.abs(q - pz) > 4.5);
+            }
+            if (!ok) continue;
+            placed.push(pz);
+            const px = cx + (srand() - 0.5) * (w - 1.6);
+            const roll = srand();
+            if (roll < ductChance && L > 9) propDuct(pz);
+            else if (roll < 0.62 + ductChance * 0.4) propAC(px, pz);
+            else propAntenna(px, pz);
+        }
+    }
+    if (!first) propsFor(spec.density ?? 1, spec.duct ?? 0.18);
+
+    // coins
+    const coins = [];
+    function coin(x, y, z) {
+        const m = new THREE.Mesh(coinGeo, coinMat);
+        m.rotation.x = Math.PI / 2;
+        m.position.set(x, y, z);
+        group.add(m);
+        coins.push({ mesh: m, x, y, z, got: false });
+    }
+    if (!first) {
+        // coins as line-guides: an arc over EVERY real gap draws the jump for you.
+        // big gaps arc higher — the trail itself says "double jump here".
+        if (prev && gap > 3) {
+            const big = gap > run.speed * 0.5;
+            const base = Math.max(prev.h, h) + 0.7;
+            const arcH = big ? 1.9 : 1.0;
+            const n = Math.min(7, 3 + ((gap / 1.6) | 0));
+            for (let i = 0; i < n; i++) {
+                const t = (i + 0.5) / n;
+                coin(prev.cx + (cx - prev.cx) * t,
+                     base + Math.sin(t * Math.PI) * arcH,
+                     prev.z1 + gap * t);
+            }
+        }
+        function lineCoins() {
+            const n = 3 + (srand() * 3 | 0);
+            const lx = cx + (srand() - 0.5) * (w - 2);
+            const lz = z0 + 2.5 + srand() * Math.max(1, L - 7 - n * 0.9);
+            for (let i = 0; i < n; i++) coin(lx, h + 0.55, lz + i * 0.9);
+        }
+        function sineCoins() {
+            const n = 7 + (srand() * 3 | 0);
+            const lz = z0 + 2.5;
+            const amp = (w - 2.4) / 2;
+            const ph0 = srand() * 6.28;
+            for (let i = 0; i < n; i++) {
+                const lz2 = lz + i * ((L - 5) / n);
+                coin(cx + Math.sin(ph0 + i * 0.85) * amp, h + 0.55, lz2);
+            }
+        }
+        function threadCoins() {
+            // a line placed to weave PAST the props — coins teach the safe path
+            const n = 4 + (srand() * 3 | 0);
+            const lz = z0 + 2.5 + srand() * Math.max(1, L - 7 - n * 0.9);
+            let best = cx, bestD = -1;
+            for (let a = 0; a < 5; a++) {
+                const candidate = cx + (srand() - 0.5) * (w - 2);
+                let minD = Infinity;
+                for (const p of props) minD = Math.min(minD, Math.abs(candidate - p.x));
+                if (minD > bestD) { bestD = minD; best = candidate; }
+            }
+            for (let i = 0; i < n; i++) coin(best, h + 0.55, lz + i * 0.9);
+        }
+        const style = spec.coins || 'line';
+        if (style === 'rich') { lineCoins(); lineCoins(); if (srand() < 0.6) sineCoins(); }
+        else if (style === 'thread') threadCoins();
+        else if (style === 'arcs') { if (srand() < 0.3) lineCoins(); }
+        else if (srand() < 0.7) lineCoins();
+    }
+
+    // vent-fan launch pad (land on it = mega jump)
+    const pads = [];
+    if (!first && L > 8 && srand() < (spec.padC ?? (L > 12 ? 0.3 : 0))) {
+        const px = cx + (srand() - 0.5) * (w - 2);
+        const pz = z0 + 4 + srand() * (L - 8);
+        const ring = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.65, 0.65, 0.12, 18), padMat);
+        ring.position.set(px, h + 0.06, pz);
+        group.add(ring);
+        const fan = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.45, 0.45, 0.08, 12), antennaMat);
+        fan.position.set(px, h + 0.14, pz);
+        group.add(fan);
+        pads.push({ x: px, z: pz, mesh: fan, ring });
+    }
+
+    // powerup on a fixed distance cadence, placed mid-roof away from the edges
+    let pow = null;
+    if (!first && z0 > nextPowZ && L > 8) {
+        nextPowZ = z0 + 380 + srand() * 160;
+        const type = ['magnet', 'catnip', 'x2'][(srand() * 3) | 0];
+        const px = cx + (srand() - 0.5) * (w - 2.5);
+        const pz = z0 + 3.5 + srand() * (L - 7);
+        const pg = new THREE.Group();
+        const core = new THREE.Mesh(powGeo, powMats[type]);
+        pg.add(core);
+        const ring = new THREE.Mesh(powRingGeo, powRingMats[type]);
+        pg.add(ring);
+        pg.position.set(px, h + 0.75, pz);
+        group.add(pg);
+        pow = { type, mesh: pg, x: px, z: pz, got: false };
+    }
+
+    // paper banner stretched across the roof — smash through it
+    let banner = null;
+    if (!first && L > 11 && srand() < (spec.bannerC ?? 0.22)) {
+        const bz = z0 + 4 + srand() * (L - 8);
+        const bw = Math.min(w - 0.6, 4.5);
+        for (const s of [-1, 1]) {
+            const pole = new THREE.Mesh(boxGeo, antennaMat);
+            pole.scale.set(0.1, 1.8, 0.1);
+            pole.position.set(cx + s * bw / 2, h + 0.9, bz);
+            group.add(pole);
+        }
+        const sheet = new THREE.Mesh(new THREE.PlaneGeometry(bw, 0.66), bannerMat);
+        sheet.position.set(cx, h + 1.15, bz);
+        group.add(sheet);
+        banner = { x: cx, z: bz, hw: bw / 2, mesh: sheet, smashed: false };
+    }
+
+    const blink = [];
+
+    // plain neon tower beside the run (all charts are real jumbotrons now)
+    if (!first && srand() < 0.28) {
+        const side = srand() < 0.5 ? -1 : 1;
+        const bx = cx + side * (w / 2 + 6 + srand() * 5);
+        const tower = new THREE.Mesh(boxGeo, towerMats[(srand() * towerMats.length) | 0]);
+        const th = 9 + srand() * 8;
+        tower.scale.set(5, th, 5);
+        tower.position.set(bx, h + th / 2 - 6, (z0 + z1) / 2);
+        group.add(tower);
+        const bcn = new THREE.Mesh(beaconGeo, beaconMat);
+        bcn.position.set(bx, h + th - 5.8, (z0 + z1) / 2);
+        group.add(bcn);
+        blink.push({ mesh: bcn, ph: srand() * 6 });
+    }
+
+    // JUMBOTRONS — the actual live dexscreener embed, in-world. WebGL punches an
+    // alpha hole (NoBlending, opacity 0) and the CSS3D iframe shows through it.
+    // Alternates side-tower / overhead-gantry. The single live iframe rides the
+    // nearest spot ahead (see tick); farther boards read as switched-off screens.
+    function holePlane(wd, ht) {
+        return new THREE.Mesh(
+            new THREE.PlaneGeometry(wd, ht),
+            new THREE.MeshBasicMaterial({ color: 0x000000, opacity: 0, blending: THREE.NoBlending, side: THREE.DoubleSide }));
+    }
+    if (!first && z0 > nextJumboZ) {
+        const style = JSTYLES[jumboStyle % JSTYLES.length];
+        if (style === 'fwd') {
+            // forward-facing board beside the track — stares straight down the run
+            jumboStyle++;
+            nextJumboZ = z0 + 150 + srand() * 70;
+            const side = srand() < 0.5 ? -1 : 1;
+            const jx = cx + side * (w / 2 + 4.5 + srand() * 2.5);
+            const jz = z1 + 1.5;
+            const jy = h + 4.6 + srand() * 1.6;
+            const pylon = new THREE.Mesh(boxGeo, antennaMat);
+            pylon.scale.set(0.35, jy + 9, 0.35);
+            pylon.position.set(jx, (jy - 9) / 2, jz + 0.35);
+            group.add(pylon);
+            const frame = new THREE.Mesh(boxGeo, facadeMat);
+            frame.scale.set(10.6, 6.2, 0.25);
+            frame.position.set(jx, jy, jz + 0.18);
+            group.add(frame);
+            const trim = new THREE.Mesh(boxGeo, edgeMat);
+            trim.scale.set(10.6, 0.09, 0.09);
+            trim.position.set(jx, jy - 3.15, jz + 0.05);
+            group.add(trim);
+            const hole = holePlane(10, 5.625);
+            hole.position.set(jx, jy, jz);
+            hole.rotation.y = Math.PI;
+            group.add(hole);
+            jumboSpots.push({ x: jx, y: jy, z: jz - 0.02, rotY: Math.PI, scale: 0.0125 });
+        } else if (style === 'gantry' && L > 10) {
+            // overhead gantry — run right under the live chart
+            jumboStyle++;
+            nextJumboZ = z0 + 150 + srand() * 70;
+            const gz = z0 + 4 + srand() * (L - 8);
+            const gw = Math.min(w - 0.4, 6.5);
+            const gh = gw * 0.5625;
+            const gy = h + 2.4 + gh / 2;
+            for (const s of [-1, 1]) {
+                const pole = new THREE.Mesh(boxGeo, antennaMat);
+                pole.scale.set(0.18, 2.4 + gh, 0.18);
+                pole.position.set(cx + s * gw / 2, h + (2.4 + gh) / 2, gz);
+                group.add(pole);
+            }
+            const frame = new THREE.Mesh(boxGeo, facadeMat);
+            frame.scale.set(gw + 0.5, gh + 0.5, 0.25);
+            frame.position.set(cx, gy, gz + 0.15);
+            group.add(frame);
+            const trim = new THREE.Mesh(boxGeo, edgeMat);
+            trim.scale.set(gw + 0.5, 0.08, 0.08);
+            trim.position.set(cx, gy - gh / 2 - 0.3, gz + 0.02);
+            group.add(trim);
+            const hole = holePlane(gw, gh);
+            hole.position.set(cx, gy, gz);
+            hole.rotation.y = Math.PI;
+            group.add(hole);
+            jumboSpots.push({ x: cx, y: gy, z: gz - 0.02, rotY: Math.PI, scale: gw / 800 });
+        } else if (style === 'tower') {
+            // side mega-tower
+            jumboStyle++;
+            nextJumboZ = z0 + 150 + srand() * 70;
+            const side = srand() < 0.5 ? -1 : 1;
+            const jx = cx + side * (w / 2 + 9);
+            const jz = (z0 + z1) / 2;
+            const th = 15 + srand() * 4;
+            const tower = new THREE.Mesh(boxGeo, towerMats[(srand() * towerMats.length) | 0]);
+            tower.scale.set(5.5, th, 5.5);
+            tower.position.set(jx, h + th / 2 - 6, jz);
+            group.add(tower);
+            const by = h + th - 9.4;
+            const bx = jx - side * 2.85;
+            const frame = new THREE.Mesh(boxGeo, facadeMat);
+            frame.scale.set(0.3, 6.4, 10.9);
+            frame.position.set(jx - side * 2.7, by, jz);
+            group.add(frame);
+            const trim = new THREE.Mesh(boxGeo, edgeMat);
+            trim.scale.set(0.1, 0.1, 10.9);
+            trim.position.set(bx, by - 3.05, jz);
+            group.add(trim);
+            const hole = holePlane(10, 5.625);
+            hole.position.set(bx, by, jz);
+            hole.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
+            group.add(hole);
+            jumboSpots.push({ x: bx - side * 0.02, y: by, z: jz, rotY: side < 0 ? Math.PI / 2 : -Math.PI / 2, scale: 0.0125 });
+        }
+    }
+
+    // background towers, both sides — with rooftop dressing
+    for (const side of [-1, 1]) {
+        if (srand() < 0.8) {
+            const bx = cx + side * (12 + srand() * 22);
+            const th = 8 + srand() * 14;
+            const tw = 4 + srand() * 4;
+            const tz = z0 + srand() * L;
+            const tower = new THREE.Mesh(boxGeo, towerMats[(srand() * towerMats.length) | 0]);
+            tower.scale.set(tw, th, tw);
+            tower.position.set(bx, th / 2 - 8, tz);
+            group.add(tower);
+            const topY = th - 8;
+            if (srand() < 0.4) {
+                const wt = waterTower();
+                wt.position.set(bx + (srand() - 0.5) * tw * 0.4, topY, tz + (srand() - 0.5) * tw * 0.4);
+                group.add(wt);
+            }
+            if (th > 15) {
+                const mast = new THREE.Mesh(boxGeo, antennaMat);
+                mast.scale.set(0.12, 1.6, 0.12);
+                mast.position.set(bx, topY + 0.8, tz);
+                group.add(mast);
+                const bcn = new THREE.Mesh(beaconGeo, beaconMat);
+                bcn.position.set(bx, topY + 1.7, tz);
+                group.add(bcn);
+                blink.push({ mesh: bcn, ph: srand() * 6 });
+            }
+            if (th > 12 && srand() < 0.45) {
+                // big neon sign on the tower face
+                const text = SIGN_TEXTS[(srand() * SIGN_TEXTS.length) | 0];
+                const color = SIGN_COLORS[(srand() * SIGN_COLORS.length) | 0];
+                const sign = new THREE.Mesh(signGeo, signMat(text, color));
+                sign.scale.setScalar(2.2);
+                const toward = bx > cx ? -1 : 1;
+                sign.position.set(bx + toward * (tw / 2 + 0.06), topY - 3 - srand() * 2, tz);
+                sign.rotation.y = toward * Math.PI / 2;
+                group.add(sign);
+            }
+            if (th > 10 && srand() < 0.32) {
+                // tibane lore poster on the FRONT face — real photo, stares down the run
+                const memorial = memorialMat && srand() < 0.15;
+                const poster = new THREE.Mesh(
+                    memorial ? memorialGeo : posterGeo,
+                    memorial ? memorialMat : posterMats[(srand() * posterMats.length) | 0]);
+                poster.position.set(bx + (srand() - 0.5) * (tw - 3.4), topY - 2.6 - srand() * 2.5, tz - tw / 2 - 0.06);
+                poster.rotation.y = Math.PI;
+                group.add(poster);
+            }
+        }
+    }
+
+    scene.add(group);
+    roofs.push({ z0, z1, h, cx, w, group, props, coins, crumble, crumbleT: 0, falling: false, pads, banner, blink, pow, birds });
+    genZ = z1;
+}
+
+function clearWorld() {
+    for (const r of roofs) scene.remove(r.group);
+    roofs.length = 0;
+    genZ = 0;
+}
+
+// =========================================================================
+// GAME STATE
+// =========================================================================
+const GS = { READY: 0, RUN: 1, DEAD: 2 };
+let state = GS.READY;
+
+const run = {
+    x: 0, y: 0, z: 4, vy: 0, vx: 0,
+    speed: 7, grounded: true,
+    coyote: 0, jumpBuf: 0, jumps: 0,
+    btc: 0, phase: 0, flip: 0,
+    combo: 0, comboT: 0,
+    slide: 0,           // >0 while sliding
+    diving: false,      // fast-fall in progress
+    grace: 0,           // stumble invulnerability window
+    squash: 0,          // landing squash anim
+    airFlip: false,     // flip started this airtime (score on landed flip)
+    heat: 0,            // chopper spotlight exposure
+    pow: { magnet: 0, catnip: 0, x2: 0 },
+    stats: { flips: 0, near: 0, slides: 0, vaults: 0, bestCombo: 0, stumbles: 0 }
+};
+let best = parseInt(localStorage.getItem('tib3d_run_best') || '0', 10);
+document.getElementById('bestTxt').textContent = best;
+
+// lore lines sourced from tibane.net/lore (the real MtGox history)
+const MILESTONES = [
+    'the cops lost visual. keep going.',
+    'board member. title: CHIEF PUSSY. description: "Meow"',
+    "named by mark's grandmother. the extra N was just domain availability.",
+    '80,000 BTC gone before mark even had server access — 1Feex',
+    'unsalted MD5. 63 SQL injections. race conditions. all inherited.',
+    'june 2011: BTC hits one cent. backend rewritten in a week.',
+    'the printers fell. the plants depotted. tibane was fine.',
+    '70% of all bitcoin on earth flowed through here',
+    "it wasn't one hack. it was a slow drain. — WizSec",
+    '650,000 BTC still missing',
+    'he was framed. vinnik pleaded guilty in 2024.',
+    '2024: $9 billion finally flows home to the creditors',
+    'mark burned 30M $CHIEFPUSSY. supply only goes down.',
+    'SFYL, shibuya',
+    'tibane did nothing wrong',
+    'the bag is heavy. the night is long.',
+    'MtGox = Magic: The Gathering Online eXchange. really.',
+    'the legend lives on'
+];
+let nextMilestone = 250;
+
+const statusEl = document.getElementById('status');
+function setStatus(t, ms) {
+    statusEl.textContent = t;
+    if (ms) setTimeout(() => { if (statusEl.textContent === t) statusEl.textContent = ''; }, ms);
+}
+function flash(color) {
+    const f = document.getElementById('flash');
+    f.style.background = color;
+    f.style.opacity = 0.5;
+    setTimeout(() => f.style.opacity = 0, 160);
+}
+
+function resetRun() {
+    clearWorld();
+    seedState = (Math.random() * 1e9) | 0; // fresh rooftops every run
+    run.x = 0; run.y = 0; run.z = 4; run.vy = 0; run.vx = 0;
+    run.speed = 7; run.grounded = true;
+    run.coyote = 0; run.jumpBuf = 0; run.jumps = 0;
+    run.btc = 0; run.phase = 0; run.flip = 0;
+    run.combo = 0; run.comboT = 0;
+    run.slide = 0; run.diving = false; run.grace = 0;
+    run.squash = 0; run.airFlip = false; run.heat = 0; run._recent = 0;
+    run.pow.magnet = 0; run.pow.catnip = 0; run.pow.x2 = 0;
+    run.stats = { flips: 0, near: 0, slides: 0, vaults: 0, bestCombo: 0, stumbles: 0 };
+    nextPowZ = 300;
+    nextJumboZ = 140;
+    jumboStyle = 0;
+    jumboSpots.length = 0;
+    for (const j of jumbos) j.obj.visible = false;
+    zoneIdx = 0;
+    scene.fog.color.copy(ZONES[0].fog);
+    skyMat.color.copy(ZONES[0].sky);
+    hemi.color.copy(ZONES[0].hemi);
+    nextMilestone = 250;
+    chopperOn = false;
+    chopper.visible = false;
+    stopThump();
+    catGroup.visible = true;
+    document.getElementById('comboTxt').textContent = '';
+    document.getElementById('powTxt').textContent = '';
+    chunkQueue.length = 0;
+    lastChunk = '';
+    intensity = 0;
+    chunksDone = 0;
+    makeRoof(true);
+    genAhead();
+    document.getElementById('btcTxt').textContent = '0';
+    document.getElementById('distTxt').textContent = '0';
+}
+
+function die(why) {
+    state = GS.DEAD;
+    stopMusic();
+    stopThump();
+    flash('#f00');
+    tone(300, 0.4, 'sawtooth', 0.22, 50);
+    const dist = Math.floor(run.z / 2);
+    const isBest = dist > best;
+    if (isBest) {
+        best = dist;
+        localStorage.setItem('tib3d_run_best', best);
+        document.getElementById('bestTxt').textContent = best;
+    }
+    const ov = document.getElementById('overlay');
+    ov.querySelector('h1').textContent = 'SFYL';
+    ov.querySelectorAll('.sub')[0].textContent = why + ' — ' + dist + 'm · ' + run.btc.toLocaleString() + ' BTC recovered';
+    const s = run.stats;
+    ov.querySelectorAll('.sub')[1].textContent =
+        (isBest ? 'NEW BEST · ' : 'best ' + best + 'm · ') +
+        'flips ' + s.flips + ' · close calls ' + s.near + ' · slides ' + s.slides +
+        (s.bestCombo > 3 ? ' · combo x' + Math.min(5, 1 + ((s.bestCombo / 4) | 0)) : '');
+    document.getElementById('goTxt').textContent = 'press any key / tap to run it back';
+    ov.style.display = 'flex';
+}
+
+// glancing hits stumble instead of kill; two stumbles inside 4s = death
+let shakeT = 0;
+function stumble() {
+    if (run._recent > 0) {
+        die(chopperOn ? 'BUSTED — the chopper lit you up' : 'tripped twice — the bag came loose');
+        return;
+    }
+    run.stats.stumbles++;
+    run._recent = 4;
+    run.grace = 1.6;
+    run.slide = 0;
+    run.speed = Math.max(7, run.speed * 0.65);
+    run.combo = 0; run.comboT = 0;
+    document.getElementById('comboTxt').textContent = '';
+    const spill = Math.min(run.btc, 500);
+    run.btc -= spill;
+    document.getElementById('btcTxt').textContent = run.btc.toLocaleString();
+    burst(run.x, run.y + 0.5, run.z, 0xf7931a, 12, 4.5);
+    burst(run.x, run.y + 0.4, run.z, 0xffffff, 6, 3);
+    flash('#ff8800');
+    shakeT = 0.35;
+    tone(150, 0.3, 'sawtooth', 0.2, 55);
+    setStatus(spill > 0 ? 'STUMBLED! dropped ' + spill + ' BTC' : 'STUMBLED!', 1500);
+}
+
+function startRun() {
+    document.getElementById('overlay').style.display = 'none';
+    resetRun();
+    state = GS.RUN;
+    startMusic();
+    setStatus('RUN.', 1200);
+    tone(392, 0.12, 'triangle', 0.15);
+    setTimeout(() => tone(523, 0.15, 'triangle', 0.15), 120);
+}
+
+// =========================================================================
+// INPUT
+// =========================================================================
+const keys = {};
+let steerTouch = 0;
+
+function downAction() {
+    if (run.grounded) {
+        if (run.slide <= 0) {
+            run.slide = 0.55;
+            tone(180, 0.14, 'sawtooth', 0.08, 90);
+        }
+    } else if (!run.diving) {
+        run.diving = true;
+        run.flip = 0;
+        run.airFlip = false; // dive cancels the flip trick
+        run.vy = Math.min(run.vy, -13);
+        tone(700, 0.16, 'sine', 0.1, 220);
+    }
+}
+addEventListener('keydown', e => {
+    if (e.code === 'KeyR' && !e.repeat) { // restart any time
+        if (state === GS.RUN) stopMusic();
+        startRun();
+        return;
+    }
+    if (state !== GS.RUN) {
+        if (!e.repeat) startRun();
+        return;
+    }
+    keys[e.code] = true;
+    if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') && !e.repeat) {
+        run.jumpBuf = 0.12;
+        e.preventDefault();
+    }
+    if ((e.code === 'KeyS' || e.code === 'ArrowDown') && !e.repeat) {
+        downAction();
+        e.preventDefault();
+    }
+});
+addEventListener('keyup', e => {
+    keys[e.code] = false;
+    // variable jump height: release while rising cuts the arc
+    if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') &&
+        state === GS.RUN && !run.grounded && run.vy > 2.5) {
+        run.vy = 2.5 + (run.vy - 2.5) * 0.35;
+    }
+});
+
+document.getElementById('overlay').addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (state !== GS.RUN) startRun();
+}, { passive: false });
+document.getElementById('overlay').addEventListener('click', () => {
+    if (state !== GS.RUN) startRun();
+});
+
+{
+    const zone = document.getElementById('steerZone');
+    let sx = null, sy = null, swiped = false;
+    zone.addEventListener('touchstart', e => {
+        e.preventDefault();
+        sx = e.changedTouches[0].clientX;
+        sy = e.changedTouches[0].clientY;
+        swiped = false;
+    }, { passive: false });
+    zone.addEventListener('touchmove', e => {
+        e.preventDefault();
+        if (sx === null) return;
+        const t = e.changedTouches[0];
+        steerTouch = Math.max(-1, Math.min(1, (t.clientX - sx) / 60));
+        // swipe down in the steer zone = slide / dive
+        if (!swiped && t.clientY - sy > 55 && state === GS.RUN) {
+            swiped = true;
+            downAction();
+        }
+    }, { passive: false });
+    const end = () => { sx = null; sy = null; steerTouch = 0; };
+    zone.addEventListener('touchend', end);
+    zone.addEventListener('touchcancel', end);
+
+    document.getElementById('btnJump').addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (state === GS.RUN) run.jumpBuf = 0.12;
+        else startRun();
+    }, { passive: false });
+    document.getElementById('btnJump').addEventListener('touchend', e => {
+        e.preventDefault();
+        // release early = shorter jump, same as keyboard
+        if (state === GS.RUN && !run.grounded && run.vy > 2.5) {
+            run.vy = 2.5 + (run.vy - 2.5) * 0.35;
+        }
+    }, { passive: false });
+    document.getElementById('btnSlide').addEventListener('touchstart', e => {
+        e.preventDefault();
+        if (state === GS.RUN) downAction();
+    }, { passive: false });
+}
+
+// =========================================================================
+// HELPERS
+// =========================================================================
+function roofAt(x, z) {
+    for (const r of roofs) {
+        if (z >= r.z0 && z <= r.z1 && Math.abs(x - r.cx) <= r.w / 2) return r;
+    }
+    return null;
+}
+
+// all point awards flow through here so x2 applies everywhere
+function award(amount, label, ms) {
+    if (run.pow.x2 > 0) amount *= 2;
+    run.btc += amount;
+    document.getElementById('btcTxt').textContent = run.btc.toLocaleString();
+    if (label) setStatus(label + ' +' + amount.toLocaleString(), ms || 1100);
+}
+
+function pickPow(p) {
+    p.got = true;
+    p.mesh.visible = false;
+    const def = POW_DEFS[p.type];
+    run.pow[p.type] = def.dur;
+    burst(p.x, run.y + 0.6, p.z, def.color, 14, 4);
+    flash('#' + def.color.toString(16).padStart(6, '0'));
+    setStatus(def.label, 1300);
+    tone(523, 0.09, 'triangle', 0.14);
+    setTimeout(() => tone(659, 0.09, 'triangle', 0.14), 90);
+    setTimeout(() => tone(784, 0.12, 'triangle', 0.14), 180);
+}
+
+function landOn(r, vaulted) {
+    run.y = r.h;
+    run.vy = 0;
+    run.grounded = true;
+    run.jumps = 0;
+    run.squash = 0.12;
+    if (vaulted) {
+        run.stats.vaults++;
+        award(100, 'LEDGE VAULT', 900);
+        tone(330, 0.08, 'triangle', 0.14, 660);
+    }
+    if (run.diving) {
+        run.diving = false;
+        burst(run.x, run.y + 0.06, run.z, 0xbbbbcc, 10, 3.2);
+        tone(60, 0.12, 'sine', 0.16);
+    } else {
+        tone(90, 0.06, 'sine', 0.1);
+        burst(run.x, run.y + 0.05, run.z, 0x8888aa, 4, 1.6);
+    }
+    if (run.airFlip) {
+        run.airFlip = false;
+        run.stats.flips++;
+        const mult = Math.min(5, 1 + ((run.combo / 4) | 0));
+        award(300 * mult, 'LANDED FLIP', 1000);
+        run.comboT = Math.max(run.comboT, 1.2);
+        run.speed = Math.min(15, run.speed + 0.35); // Alto rule: style = speed
+        tone(1046, 0.1, 'triangle', 0.12);
+    }
+    // vent pad launch
+    for (const pad of r.pads) {
+        if (Math.hypot(run.x - pad.x, run.z - pad.z) < 0.8) {
+            run.vy = 12.5;
+            run.grounded = false;
+            run.jumps = 1;
+            run.diving = false;
+            burst(pad.x, r.h + 0.2, pad.z, 0x7cff00, 12, 4);
+            tone(300, 0.3, 'sine', 0.16, 1400);
+            setStatus('VENT LAUNCH!', 1000);
+            break;
+        }
+    }
+}
+
+// =========================================================================
+// MAIN LOOP
+// =========================================================================
+const clock = new THREE.Clock();
+let fpsFrames = 0, fpsLast = performance.now();
+const _camPos = new THREE.Vector3();
+
+function tick() {
+    requestAnimationFrame(tick);
+    const dt = Math.min(clock.getDelta(), 0.05);
+    const now = performance.now();
+
+    if (state === GS.RUN) {
+        // speed & distance — base ramps to 15; catnip rides +1.5 on top
+        run.speed = Math.min(15, run.speed + 0.14 * dt);
+        const spd = run.speed + (run.pow.catnip > 0 ? 1.5 : 0);
+        run.z += spd * dt;
+        run.phase += spd * 1.6 * dt;
+
+        // steering
+        let steer = steerTouch;
+        if (keys['KeyA'] || keys['ArrowLeft']) steer -= 1;
+        if (keys['KeyD'] || keys['ArrowRight']) steer += 1;
+        steer = Math.max(-1, Math.min(1, steer));
+        // camera looks down +Z, so screen-right = -X
+        const targetVx = -steer * 5.2;
+        run.vx += (targetVx - run.vx) * Math.min(1, 12 * dt);
+        run.x += run.vx * dt;
+
+        // ground / jumping
+        const under = roofAt(run.x, run.z);
+        const groundH = under ? under.h : -Infinity;
+
+        run.coyote -= dt;
+        run.jumpBuf -= dt;
+        if (run.grace > 0) run.grace -= dt;
+        if (run._recent > 0) run._recent -= dt;
+
+        // slide timer + dust trail
+        if (run.slide > 0) {
+            run.slide -= dt;
+            run._slideDust = (run._slideDust || 0) + dt;
+            if (run._slideDust > 0.06) {
+                run._slideDust = 0;
+                burst(run.x, run.y + 0.06, run.z - 0.4, 0x777788, 1, 1.2);
+            }
+        }
+
+        if (run.grounded && (!under || run.y > groundH + 0.05)) {
+            run.grounded = false;
+            run.coyote = 0.12;
+        }
+
+        if (run.jumpBuf > 0) {
+            if (run.grounded || run.coyote > 0) {
+                run.vy = 7.4;
+                run.grounded = false;
+                run.coyote = 0;
+                run.jumpBuf = 0;
+                run.jumps = 1;
+                run.slide = 0;
+                tone(500, 0.12, 'sine', 0.12, 900);
+            } else if (run.jumps === 1) {
+                // double jump
+                run.vy = 6.8;
+                run.jumps = 2;
+                run.jumpBuf = 0;
+                tone(620, 0.12, 'sine', 0.12, 1050);
+            } else if (run.jumps === 2) {
+                // TRIPLE jump = cat flip — score it if you land it
+                run.vy = 6.4;
+                run.jumps = 3;
+                run.flip = 1;
+                run.airFlip = true;
+                run.jumpBuf = 0;
+                tone(740, 0.16, 'sine', 0.13, 1480);
+            }
+        }
+
+        if (!run.grounded) {
+            run.vy -= (run.diving ? 26 : 18) * dt;
+            run.y += run.vy * dt;
+            const below = groundH - run.y;
+            if (under && below > 0.05) {
+                // inside the building face: close enough = ledge vault, else splat
+                if (below <= 0.95 || run.pow.catnip > 0) {
+                    landOn(under, true);
+                } else {
+                    die('face-met the facade');
+                }
+            } else if (run.vy <= 0 && under && run.y <= groundH + 0.02) {
+                landOn(under, false);
+            }
+        } else {
+            run.y = groundH;
+        }
+
+        // crumbling rooftops: land on one and it starts going down with you.
+        // fall eases in (0 → 5 over ~1.8s) so there's a real escape window.
+        if (under && under.crumble && run.grounded) {
+            under.crumbleT += dt;
+            if (under.crumbleT > 0.65 && !under.falling) {
+                under.falling = true;
+                shakeT = 0.3;
+                tone(70, 0.5, 'sawtooth', 0.18, 35);
+                setStatus('THE ROOF IS GOING!', 1200);
+            }
+        }
+        for (const r of roofs) {
+            if (r.falling) {
+                r.fallV = Math.min(5, (r.fallV || 0) + 2.8 * dt);
+                r.h -= r.fallV * dt;
+                r.group.position.y -= r.fallV * dt;
+            }
+        }
+
+        // banner smash — pure reward
+        if (under && under.banner && !under.banner.smashed) {
+            const b = under.banner;
+            if (Math.abs(run.z - b.z) < 0.4 && Math.abs(run.x - b.x) < b.hw &&
+                run.y < under.h + 1.6) {
+                b.smashed = true;
+                b.mesh.visible = false;
+                run.btc += 2500;
+                document.getElementById('btcTxt').textContent = run.btc.toLocaleString();
+                burst(run.x, run.y + 0.8, run.z, 0xf7931a, 16, 5);
+                flash('#f7931a');
+                tone(523, 0.1, 'sine', 0.15);
+                setTimeout(() => tone(784, 0.14, 'sine', 0.15), 90);
+                setStatus('THROUGH THE BANNER! +2,500', 1400);
+            }
+        }
+
+        // combo decay
+        if (run.comboT > 0) {
+            run.comboT -= dt;
+            if (run.comboT <= 0) {
+                run.combo = 0;
+                document.getElementById('comboTxt').textContent = '';
+            }
+        }
+
+        // powerup timers + HUD readout
+        let powTxt = '';
+        for (const k in run.pow) {
+            if (run.pow[k] > 0) {
+                run.pow[k] -= dt;
+                if (run.pow[k] <= 0) {
+                    run.pow[k] = 0;
+                    tone(392, 0.14, 'sine', 0.08, 196);
+                } else {
+                    powTxt += POW_DEFS[k].label + ' ' + Math.ceil(run.pow[k]) + '  ';
+                }
+            }
+        }
+        document.getElementById('powTxt').textContent = powTxt;
+
+        // fell into the canyon
+        if (run.y < -6) die('gravity checked the order book');
+
+        // obstacle collisions: catnip smashes, otherwise stumble (with grace).
+        // also tracks clean slides under ducts + near-miss close calls.
+        if (state === GS.RUN && under) {
+            const catTop = run.slide > 0 ? 0.35 : 0.75;
+            for (const p of under.props) {
+                if (p.dead) continue;
+                const zNear = Math.abs(run.z - p.z) < p.hd + 0.3;
+                const xHit = Math.abs(run.x - p.x) < p.hw + 0.26;
+                const yOverlap = run.y < under.h + p.ph - 0.1 &&
+                                 run.y + catTop > under.h + (p.y0 || 0);
+                if (zNear) {
+                    if (xHit && yOverlap) {
+                        p.passed = true;
+                        p.close = false;
+                        if (run.pow.catnip > 0) {
+                            p.dead = true;
+                            for (const m of p.meshes) m.visible = false;
+                            burst(run.x, under.h + 0.7, run.z, 0xff6a00, 14, 5);
+                            award(250, 'SMASHED', 800);
+                            tone(200, 0.15, 'square', 0.15, 60);
+                        } else if (run.grace <= 0) {
+                            stumble();
+                        }
+                    } else if (xHit && p.duct && run.slide > 0) {
+                        p.slid = true;
+                    } else if (!xHit && yOverlap && Math.abs(run.x - p.x) < p.hw + 0.8) {
+                        p.close = true;
+                    }
+                }
+                if (!p.passed && run.z > p.z + p.hd + 0.5) {
+                    p.passed = true;
+                    if (p.slid) {
+                        run.stats.slides++;
+                        award(200, 'CLEAN SLIDE', 900);
+                        tone(880, 0.09, 'triangle', 0.12, 1320);
+                    } else if (p.close) {
+                        run.stats.near++;
+                        award(150, 'CLOSE CALL', 800);
+                        tone(1240, 0.06, 'sine', 0.1);
+                    }
+                }
+            }
+        }
+
+        // coins + powerups
+        if (state === GS.RUN) {
+            const magnetOn = run.pow.magnet > 0;
+            for (const r of roofs) {
+                if (r.z1 < run.z - 4 || r.z0 > run.z + 6) continue;
+                for (const cn of r.coins) {
+                    if (cn.got) continue;
+                    if (magnetOn) {
+                        const dx = run.x - cn.x, dy = (run.y + 0.4) - cn.y, dz = run.z - cn.z;
+                        const d = Math.hypot(dx, dy, dz);
+                        if (d < 3.4 && d > 0.01) {
+                            const pull = Math.min(1, 15 * dt / d);
+                            cn.x += dx * pull; cn.y += dy * pull; cn.z += dz * pull;
+                            cn.mesh.position.set(cn.x, cn.y, cn.z);
+                        }
+                    }
+                    if (Math.abs(cn.z - run.z) < 0.55 && Math.abs(cn.x - run.x) < 0.6 &&
+                        Math.abs(cn.y - (run.y + 0.4)) < 0.8) {
+                        cn.got = true;
+                        cn.mesh.visible = false;
+                        run.combo++;
+                        run.comboT = 2.2;
+                        run.stats.bestCombo = Math.max(run.stats.bestCombo, run.combo);
+                        const mult = Math.min(5, 1 + ((run.combo / 4) | 0));
+                        award(1000 * mult);
+                        document.getElementById('comboTxt').textContent = mult > 1 ? 'x' + mult : '';
+                        tone(900 + Math.min(20, run.combo) * 45, 0.08, 'sine', 0.12);
+                    }
+                }
+                if (r.pow && !r.pow.got &&
+                    Math.abs(r.pow.z - run.z) < 0.7 && Math.abs(r.pow.x - run.x) < 0.75 &&
+                    Math.abs((r.h + 0.75) - (run.y + 0.4)) < 1.0) {
+                    pickPow(r.pow);
+                }
+            }
+        }
+
+        // world recycling
+        genAhead();
+        while (roofs.length && roofs[0].z1 < run.z - 25) {
+            scene.remove(roofs[0].group);
+            roofs.shift();
+        }
+
+        // milestones + HUD
+        const dist = Math.floor(run.z / 2);
+        document.getElementById('distTxt').textContent = dist;
+        if (dist >= nextMilestone) {
+            setStatus(MILESTONES[(Math.random() * MILESTONES.length) | 0], 2600);
+            tone(784, 0.1, 'triangle', 0.1);
+            nextMilestone += 250;
+        }
+
+        // chopper arrives at 120m and never leaves
+        if (!chopperOn && run.z / 2 > 120) {
+            chopperOn = true;
+            chopper.visible = true;
+            startThump();
+            setStatus('CHOPPER ON YOUR TAIL', 2200);
+        }
+
+        // footsteps
+        if (run.grounded) {
+            run._step = (run._step || 0) + dt;
+            if (run._step > 2.2 / run.speed) {
+                run._step = 0;
+                tone(85, 0.04, 'sine', 0.05);
+            }
+        }
+    }
+
+    // cat visuals
+    catGroup.position.set(run.x, run.y, run.z);
+    catGroup.rotation.z = -run.vx * 0.06;
+    if (run.flip > 0) {
+        run.flip = Math.max(0, run.flip - 2.6 * dt);
+        catGroup.rotation.x = (1 - run.flip) * Math.PI * 2;
+    } else {
+        catGroup.rotation.x = run.diving ? -0.42 : 0;
+    }
+    // pose: slide squash / land squash / rise stretch
+    let sy = 1, sz = 1;
+    if (run.slide > 0) { sy = 0.5; sz = 1.25; }
+    else if (run.squash > 0) { run.squash -= dt; sy = 1 - Math.max(0, run.squash / 0.12) * 0.3; }
+    else if (!run.grounded && run.vy > 3) sy = 1.12;
+    catGroup.scale.set(1, sy, sz);
+    // stumble grace = flicker
+    catGroup.visible = !(run.grace > 0 && Math.sin(now / 45) < 0);
+    // catnip rainbow trail
+    if (run.pow.catnip > 0 && state === GS.RUN) {
+        run._nipT = (run._nipT || 0) + dt;
+        if (run._nipT > 0.05) {
+            run._nipT = 0;
+            const col = new THREE.Color().setHSL((now / 900) % 1, 1, 0.6);
+            burst(run.x, run.y + 0.3, run.z - 0.5, col.getHex(), 1, 1.4);
+        }
+    }
+    catGroup.userData.legs.forEach((leg, i) => {
+        const ph = run.phase + (i === 0 || i === 3 ? 0 : Math.PI);
+        leg.position.y = (run.grounded && run.slide <= 0)
+            ? 0.08 + Math.max(0, Math.sin(ph)) * 0.09
+            : 0.18; // tucked mid-air / sliding
+    });
+    catGroup.userData.tail.forEach((seg, t) => {
+        seg.position.x = Math.sin(now / 110 + t * 0.8) * (0.05 + t * 0.045);
+    });
+
+    // chopper hover + strobe — closes in menacingly after a stumble
+    if (chopperOn) {
+        const sway = Math.sin(now / 900) * 2.5;
+        const danger = run._recent > 0;
+        const cTarget = new THREE.Vector3(
+            run.x * 0.6 + sway,
+            run.y + (danger ? 3.8 : 5.2) + Math.sin(now / 700) * 0.4,
+            run.z - (danger ? 1.2 : 2.5));
+        chopper.position.lerp(cTarget, Math.min(1, 2.2 * dt));
+        chopper.rotation.z = Math.sin(now / 900) * 0.08;
+        rotor.rotation.y = now / 28;
+        chopper.userData.strobe.visible = Math.sin(now / 150) > 0;
+        // danger window: beam goes red + siren — one more trip and you're BUSTED
+        chopper.userData.beam.material.color.set(danger ? 0xff4433 : 0xfff2cc);
+        chopper.userData.spot.color.set(danger ? 0xff4433 : 0xfff2cc);
+        if (danger && state === GS.RUN) {
+            run._siren = (run._siren || 0) - dt;
+            if (run._siren <= 0) {
+                run._siren = 0.55;
+                tone(880, 0.22, 'square', 0.05, 660);
+            }
+        }
+    }
+
+    // wind streaks at speed
+    {
+        const op = Math.max(0, Math.min(0.5, (run.speed - 8.5) / 12));
+        streaks.mat.opacity = state === GS.RUN ? op : 0;
+        if (op > 0) {
+            for (const s of streaks) {
+                if (s.position.z < run.z - 6) {
+                    s.position.set(
+                        run.x + (Math.random() - 0.5) * 14,
+                        run.y + Math.random() * 4.5,
+                        run.z + 30 + Math.random() * 30);
+                }
+            }
+        }
+    }
+
+    // particles
+    for (const p of parts) {
+        if (!p.visible) continue;
+        p.userData.life -= dt;
+        if (p.userData.life <= 0) { p.visible = false; continue; }
+        p.userData.vy -= 9 * dt;
+        p.position.x += p.userData.vx * dt;
+        p.position.y += p.userData.vy * dt;
+        p.position.z += p.userData.vz * dt;
+    }
+
+    // coin spin + beacon blink + vent pad pulse
+    const padS = 1 + Math.sin(now / 170) * 0.14;
+    for (const r of roofs) {
+        for (const cn of r.coins) {
+            if (!cn.got) cn.mesh.rotation.z = now / 300;
+        }
+        for (const b of r.blink) b.mesh.visible = Math.sin(now / 420 + b.ph) > 0.55;
+        for (const pad of r.pads) pad.ring.scale.set(padS, 1, padS);
+        if (r.pow && !r.pow.got) {
+            if (r.pow.y0 === undefined) r.pow.y0 = r.pow.mesh.position.y;
+            r.pow.mesh.rotation.y = now / 500;
+            r.pow.mesh.position.y = r.pow.y0 + Math.sin(now / 340) * 0.12;
+        }
+    }
+
+    // street glow follows the cat; sky searchlights sweep
+    catLight.position.set(run.x, run.y + 1.5, run.z + 0.4);
+    skyBeams.forEach((b, i) => {
+        b.rotation.z = Math.sin(now / 3800 + i * 2.1) * 0.5;
+        b.rotation.x = Math.sin(now / 5100 + i * 1.4) * 0.16;
+    });
+
+    // zone shifts every 500m — fog/sky/hemisphere ease to the district palette
+    {
+        const zi = Math.floor(run.z / 1000) % ZONES.length;
+        if (zi !== zoneIdx) {
+            zoneIdx = zi;
+            setStatus('ENTERING ' + ZONES[zi].name, 2400);
+            tone(523, 0.12, 'triangle', 0.1);
+        }
+        const zn = ZONES[zoneIdx];
+        const zl = Math.min(1, 0.7 * dt);
+        scene.fog.color.lerp(zn.fog, zl);
+        skyMat.color.lerp(zn.sky, zl);
+        hemi.color.lerp(zn.hemi, zl);
+    }
+
+    // rain (instanced)
+    {
+        const camY = camera.position.y;
+        for (let i = 0; i < RAIN_N; i++) {
+            let x = rainP[i * 3], y = rainP[i * 3 + 1], z = rainP[i * 3 + 2];
+            y -= 26 * dt;
+            if (y < camY - 9) {
+                y = camY + 9 + Math.random() * 9;
+                x = camera.position.x + (Math.random() - 0.5) * 46;
+                z = run.z - 4 + Math.random() * 58;
+            }
+            rainP[i * 3] = x; rainP[i * 3 + 1] = y; rainP[i * 3 + 2] = z;
+            _rm4.setPosition(x, y, z);
+            rainMesh.setMatrixAt(i, _rm4);
+        }
+        rainMesh.instanceMatrix.needsUpdate = true;
+    }
+
+    // birds: sit, then scatter as the cat closes in
+    for (const r of roofs) {
+        for (const b of r.birds) {
+            if (!b.flying) {
+                if (state === GS.RUN && b.g.position.z - run.z < 7 && b.g.position.z > run.z - 1) {
+                    b.flying = true;
+                    if (Math.abs(b.g.position.z - run.z) < 12) tone(1800, 0.05, 'square', 0.03);
+                }
+            } else {
+                b.g.position.x += b.vx * dt;
+                b.g.position.y += b.vy * dt;
+                b.g.position.z += b.vz * dt;
+                b.g.rotation.z = Math.sin(now / 60) * 0.2;
+                b.g.userData.wings.forEach((wg, wi) => {
+                    wg.rotation.z = (wi ? -1 : 1) * Math.sin(now / 45) * 0.7;
+                });
+            }
+        }
+    }
+
+    // blimp drift
+    blimp.position.x = -32 + Math.sin(now / 9000) * 10;
+    blimp.position.y = 24 + Math.sin(now / 5200) * 1.2;
+    blimp.rotation.y = Math.sin(now / 11000) * 0.25;
+
+    // camera: low chase, FOV widens with speed
+    const targetFov = 62 + (run.speed - 6) * 1.1;
+    camera.fov += (targetFov - camera.fov) * Math.min(1, 4 * dt);
+    camera.updateProjectionMatrix();
+    const backRoof = roofAt(run.x, run.z - 4);
+    const camY = Math.max(run.y + 2.0, (backRoof ? backRoof.h : run.y) + 2.0);
+    _camPos.set(run.x * 0.7, camY, run.z - 5.2);
+    camera.position.lerp(_camPos, Math.min(1, 6 * dt));
+    // top-speed shake + impact impulse
+    if (shakeT > 0) shakeT -= dt;
+    if (state === GS.RUN && (run.speed > 11.5 || shakeT > 0)) {
+        const sh = Math.max(0, (run.speed - 11.5) * 0.012) + Math.max(0, shakeT) * 0.14;
+        camera.position.x += (Math.random() - 0.5) * sh;
+        camera.position.y += (Math.random() - 0.5) * sh;
+    }
+    camera.lookAt(run.x * 0.85, run.y + 0.7, run.z + 5);
+
+    // moon follows
+    moonGroup.position.set(camera.position.x, 0, camera.position.z);
+
+    // fps
+    fpsFrames++;
+    if (now - fpsLast > 500) {
+        document.getElementById('fps').textContent = Math.round(fpsFrames * 1000 / (now - fpsLast)) + ' fps';
+        fpsFrames = 0;
+        fpsLast = now;
+    }
+
+    // the two live iframes ride the two nearest jumbotrons ahead; fade through fog
+    while (jumboSpots.length && jumboSpots[0].z < run.z - 24) jumboSpots.shift();
+    jumbos.forEach((j, i) => {
+        const spot = jumboSpots[i];
+        if (spot) {
+            j.obj.visible = true;
+            j.obj.position.set(spot.x, spot.y, spot.z);
+            j.obj.rotation.set(0, spot.rotY, 0);
+            j.obj.scale.setScalar(spot.scale);
+            const jd = spot.z - run.z;
+            j.el.style.opacity = Math.max(0, Math.min(1, 1.7 - jd / 60)).toFixed(2);
+            // lazy-load: don't boot the (heavy) embed until the board is near —
+            // two apps booting at once stalls the main thread
+            if (!j.fr.src && chartEmbedUrl && jd < 95) j.fr.src = chartEmbedUrl;
+        } else {
+            j.obj.visible = false;
+        }
+    });
+    cssRenderer.render(cssScene, camera);
+    renderer.render(scene, camera);
+}
+
+resetRun();
+tick();
+</script>
+</body>
+</html>
