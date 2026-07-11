@@ -156,6 +156,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from './lib/CSS3DRenderer.js';
+import { GLTFLoader } from './lib/GLTFLoader.js';
 
 // =========================================================================
 // AUDIO
@@ -550,6 +551,22 @@ let blimp;
     moonGroup.add(blimp);
 }
 
+// police drones patrolling beside the run (kit Enemy_Flying; spawn once loaded)
+const drones = [];
+function spawnDrones() {
+    if (drones.length || !kit.drone) return;
+    for (let i = 0; i < 3; i++) {
+        const d = kitClone('drone', 0.9);
+        const eye = new THREE.Mesh(beaconGeo, new THREE.MeshBasicMaterial({ color: 0xff3344 }));
+        eye.scale.setScalar(0.6);
+        eye.position.y = 0.5;
+        d.add(eye);
+        d.userData.eye = eye;
+        scene.add(d);
+        drones.push({ g: d, side: i % 2 ? 1 : -1, r: 3 + i, ph: i * 2.1, zoff: 25 + i * 22 });
+    }
+}
+
 // city searchlights sweeping the sky
 const skyBeams = [];
 {
@@ -620,6 +637,45 @@ let rotor, chopperOn = false;
 chopper.visible = false;
 scene.add(chopper);
 
+// chopper MISSILE: telegraphed ground-lock ring → rocket arcs in → dodge.
+// (temple-run style warning-marker attack; all timing lives in the sim)
+const missile = { state: 0, t: 0, ft: 0, T: 0.55, x: 0, y: 0, z: 0, sx: 0, sy: 0, sz: 0, nextAt: 240 };
+const lockRing = (() => {
+    const g = new THREE.Group();
+    const outer = new THREE.Mesh(
+        new THREE.TorusGeometry(1.1, 0.07, 8, 26).rotateX(Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0.85,
+            blending: THREE.AdditiveBlending, depthWrite: false }));
+    g.add(outer);
+    const inner = new THREE.Mesh(
+        new THREE.TorusGeometry(0.45, 0.05, 8, 20).rotateX(Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.9,
+            blending: THREE.AdditiveBlending, depthWrite: false }));
+    g.add(inner);
+    g.visible = false;
+    scene.add(g);
+    return g;
+})();
+const missileMesh = (() => {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.7, 8),
+        new THREE.MeshLambertMaterial({ color: 0x39394a }));
+    g.add(body);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 8),
+        new THREE.MeshBasicMaterial({ color: 0xff4422 }));
+    nose.position.y = 0.46;
+    g.add(nose);
+    const exhaust = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.5, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffb347, transparent: true, opacity: 0.7,
+            blending: THREE.AdditiveBlending, depthWrite: false }));
+    exhaust.position.y = -0.55;
+    exhaust.rotation.x = Math.PI;
+    g.add(exhaust);
+    g.visible = false;
+    scene.add(g);
+    return g;
+})();
+
 // wind streaks (visible at high speed)
 const streaks = [];
 {
@@ -633,6 +689,25 @@ const streaks = [];
     }
     streaks.mat = sMat;
 }
+
+// afterburner trail quads behind the cat at speed
+const trail = [];
+{
+    const tGeo = new THREE.PlaneGeometry(0.42, 0.42);
+    for (let i = 0; i < 10; i++) {
+        const m = new THREE.Mesh(tGeo, new THREE.MeshBasicMaterial({
+            color: 0xffa040, transparent: true, opacity: 0,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+        m.visible = false;
+        m.userData = { t: 0 };
+        scene.add(m);
+        trail.push(m);
+    }
+}
+let trailIdx = 0, trailT = 0;
+
+// distant lightning over the city — double flash, thunder rolls in late
+let lightNext = 18000, lightT = 0, thunderAt = 0;
 
 // tiny particle pool (banner smash, pad launch, landings)
 const parts = [];
@@ -658,6 +733,65 @@ function burst(x, y, z, color, n, spd) {
         p.userData.vz = (Math.random() - 0.5) * spd;
         p.userData.life = 0.5 + Math.random() * 0.4;
     }
+}
+
+// shockwave rings — explosions, big landings, vent launches, rain splashes
+const rings = [];
+{
+    const rGeo = new THREE.TorusGeometry(1, 0.05, 6, 28);
+    rGeo.rotateX(Math.PI / 2); // flat on the roof
+    for (let i = 0; i < 20; i++) {
+        const m = new THREE.Mesh(rGeo, new THREE.MeshBasicMaterial({
+            color: 0xffffff, transparent: true, opacity: 0,
+            blending: THREE.AdditiveBlending, depthWrite: false
+        }));
+        m.visible = false;
+        m.userData = { t: 0, dur: 0, maxR: 0 };
+        scene.add(m);
+        rings.push(m);
+    }
+}
+let ringIdx = 0;
+function ring(x, y, z, color, maxR, dur, op) {
+    const r = rings[ringIdx = (ringIdx + 1) % rings.length];
+    r.visible = true;
+    r.material.color.set(color);
+    r.userData = { t: dur, dur, maxR, op: op ?? 0.6 };
+    r.position.set(x, y, z);
+    r.scale.setScalar(0.05);
+}
+
+// scorch decals where missiles land
+const scorches = [];
+{
+    const sGeo = new THREE.CircleGeometry(1.1, 20);
+    sGeo.rotateX(-Math.PI / 2);
+    for (let i = 0; i < 4; i++) {
+        const m = new THREE.Mesh(sGeo, new THREE.MeshBasicMaterial({
+            color: 0x090509, transparent: true, opacity: 0 }));
+        m.visible = false;
+        m.userData = { t: 0 };
+        scene.add(m);
+        scorches.push(m);
+    }
+}
+let scorchIdx = 0;
+
+function explode(x, y, z) {
+    burst(x, y + 0.4, z, 0xff6a00, 18, 7);
+    burst(x, y + 0.5, z, 0xffd24a, 10, 5);
+    burst(x, y + 0.6, z, 0x333333, 8, 2.5);
+    ring(x, y + 0.12, z, 0xffaa55, 4.2, 0.5, 0.8);
+    ring(x, y + 0.12, z, 0xffffff, 2.4, 0.3, 0.9);
+    const sc = scorches[scorchIdx = (scorchIdx + 1) % scorches.length];
+    sc.visible = true;
+    sc.position.set(x, y + 0.08, z);
+    sc.material.opacity = 0.85;
+    sc.userData.t = 7;
+    flash('#ff6a00');
+    shakeT = Math.max(shakeT, 0.5);
+    tone(90, 0.5, 'sine', 0.2, 30);
+    if (AC) nhit(AC.currentTime, 0.35, 0.16, 320, 0.6);
 }
 
 // banner texture ($CHIEFPUSSY paper banner you smash through)
@@ -969,6 +1103,46 @@ const memeArts = []; // { mat, aspect } — filled as images finish loading
 }
 const memeGeo = new THREE.PlaneGeometry(1, 1); // scaled per placement to the meme's aspect
 
+// quaternius cyberpunk kit (CC0, ships in assets/kit/) — real models replace the
+// procedural prop boxes. loads async like the memes: worldgen consumes the SAME
+// srand() calls either way and falls back to boxes until a piece is ready.
+const kit = {}; // key -> { proto: Group (origin at base-center), size: Vector3 }
+{
+    const gl = new GLTFLoader();
+    const lamCache = {};
+    function toLambert(root) { // kit ships MeshStandard — Lambert is enough & cheaper
+        root.traverse(o => {
+            if (o.isMesh) {
+                const c = '#' + o.material.color.getHexString();
+                if (!lamCache[c]) lamCache[c] = new THREE.MeshLambertMaterial({ color: o.material.color.clone() });
+                o.material = lamCache[c];
+            }
+        });
+    }
+    [['ac', 'AC'], ['acBig', 'AC_Stacked'], ['ant1', 'Antenna_1'], ['ant2', 'Antenna_2'],
+     ['fence', 'Fence'], ['lamp', 'Light_Square'], ['computer', 'Computer'],
+     ['drone', 'Enemy_Flying'], ['turret', 'Turret_Gun']].forEach(([key, file]) => {
+        gl.load('./assets/kit/' + file + '.gltf', g => {
+            const proto = g.scene;
+            toLambert(proto);
+            const box = new THREE.Box3().setFromObject(proto);
+            const size = box.getSize(new THREE.Vector3());
+            const ctr = box.getCenter(new THREE.Vector3());
+            proto.position.set(-ctr.x, -box.min.y, -ctr.z); // origin = base center
+            const wrap = new THREE.Group();
+            wrap.add(proto);
+            kit[key] = { proto: wrap, size };
+        });
+    });
+}
+function kitClone(key, targetH) { // uniform scale to a target height
+    const k = kit[key];
+    if (!k) return null;
+    const m = k.proto.clone();
+    m.scale.setScalar(targetH / k.size.y);
+    return m;
+}
+
 // rooftop water tower (visual dressing on towers)
 function waterTower() {
     const wt = new THREE.Group();
@@ -1241,6 +1415,22 @@ function makeRoof(first, spec = {}) {
             group.add(pnl);
         }
     }
+    // kit clutter: server boxes / computers on long roofs (visual, no collision)
+    if (!first && L > 12) {
+        const want = srand() < 0.3;
+        const cx2 = cx + (srand() - 0.5) * (w - 2.2);
+        const cz2 = z0 + 2.5 + srand() * (L - 5);
+        const rot = srand() * Math.PI * 2;
+        if (want) {
+            const puter = kitClone('computer', 0.7);
+            if (puter) {
+                puter.position.set(cx2, h + 0.06, cz2);
+                puter.rotation.y = rot;
+                group.add(puter);
+            }
+        }
+    }
+
     // pigeons — scatter when you get close (speed reference objects)
     const birds = [];
     if (!first && L > 10 && srand() < 0.3) {
@@ -1283,26 +1473,53 @@ function makeRoof(first, spec = {}) {
     //   AC (jump it) / antenna (steer) / duct gate (slide under or steer around)
     const props = [];
     function propAC(px, pz) {
-        const ac = new THREE.Mesh(boxGeo, acMat);
-        ac.scale.set(1.1, 0.8, 0.9);
-        ac.position.set(px, h + 0.4, pz);
-        group.add(ac);
-        const fan = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.28, 0.28, 0.06, 12), antennaMat);
-        fan.position.set(px, h + 0.84, pz);
-        group.add(fan);
-        props.push({ x: px, z: pz, hw: 0.55, hd: 0.45, ph: 0.8, y0: 0, meshes: [ac, fan] });
+        // consume srand BEFORE branching on kit-loaded state → same worldgen stream
+        const big = srand() < 0.28;
+        const rot = ((srand() * 4) | 0) * Math.PI / 2;
+        const meshes = [];
+        const model = kitClone(big ? 'acBig' : 'ac', big ? 1.15 : 0.8);
+        if (model) {
+            model.position.set(px, h, pz);
+            model.rotation.y = rot;
+            group.add(model);
+            meshes.push(model);
+        } else {
+            const ac = new THREE.Mesh(boxGeo, acMat);
+            ac.scale.set(1.1, 0.8, 0.9);
+            ac.position.set(px, h + 0.4, pz);
+            group.add(ac);
+            const fan = new THREE.Mesh(
+                new THREE.CylinderGeometry(0.28, 0.28, 0.06, 12), antennaMat);
+            fan.position.set(px, h + 0.84, pz);
+            group.add(fan);
+            meshes.push(ac, fan);
+        }
+        // collision box unchanged — kit swap is visual only (big AC still jumpable)
+        props.push({ x: px, z: pz, hw: 0.55, hd: 0.45, ph: big ? 1.15 : 0.8, y0: 0, meshes });
     }
     function propAntenna(px, pz) {
-        const ant = new THREE.Mesh(boxGeo, antennaMat);
-        ant.scale.set(0.5, 2.2, 0.5);
-        ant.position.set(px, h + 1.1, pz);
-        group.add(ant);
-        const tip = new THREE.Mesh(boxGeo, edgeMat);
+        const which = srand() < 0.5 ? 'ant1' : 'ant2';
+        const rot = srand() * Math.PI * 2;
+        const meshes = [];
+        const model = kitClone(which, 2.2);
+        if (model) {
+            model.position.set(px, h, pz);
+            model.rotation.y = rot;
+            group.add(model);
+            meshes.push(model);
+        } else {
+            const ant = new THREE.Mesh(boxGeo, antennaMat);
+            ant.scale.set(0.5, 2.2, 0.5);
+            ant.position.set(px, h + 1.1, pz);
+            group.add(ant);
+            meshes.push(ant);
+        }
+        const tip = new THREE.Mesh(boxGeo, edgeMat); // blinking tip stays — readability
         tip.scale.set(0.08, 0.08, 0.08);
         tip.position.set(px, h + 2.25, pz);
         group.add(tip);
-        props.push({ x: px, z: pz, hw: 0.25, hd: 0.25, ph: 2.2, y0: 0, meshes: [ant, tip] });
+        meshes.push(tip);
+        props.push({ x: px, z: pz, hw: 0.25, hd: 0.25, ph: 2.2, y0: 0, meshes });
     }
     function propDuct(pz) {
         // duct gate: bottom 0.9 (slide clears), top 1.8 (jump can't) — or steer past the end
@@ -1596,6 +1813,26 @@ function makeRoof(first, spec = {}) {
                 wt.position.set(bx + (srand() - 0.5) * tw * 0.4, topY, tz + (srand() - 0.5) * tw * 0.4);
                 group.add(wt);
             }
+            { // kit dressing on tower roofs: turret silhouettes + fence parapets
+                const wantTurret = srand() < 0.22;
+                const tx2 = bx + (srand() - 0.5) * tw * 0.5;
+                const wantFence = srand() < 0.3;
+                if (wantTurret) {
+                    const tr = kitClone('turret', 1.3);
+                    if (tr) {
+                        tr.position.set(tx2, topY, tz);
+                        tr.rotation.y = Math.PI; // barrel toward the run
+                        group.add(tr);
+                    }
+                }
+                if (wantFence) {
+                    const fc = kitClone('fence', 0.55);
+                    if (fc) {
+                        fc.position.set(bx, topY, tz - tw / 2 + 0.15);
+                        group.add(fc);
+                    }
+                }
+            }
             if (th > 15) {
                 const mast = new THREE.Mesh(boxGeo, antennaMat);
                 mast.scale.set(0.12, 1.6, 0.12);
@@ -1626,6 +1863,7 @@ function makeRoof(first, spec = {}) {
                 sign.position.set(bx + toward * (tw / 2 + 0.06), topY - 3 - srand() * 2, tz);
                 sign.rotation.y = toward * Math.PI / 2;
                 group.add(sign);
+                if (srand() < 0.3) blink.push({ mesh: sign, ph: srand() * 6, f: true });
             }
             if (th > 13 && srand() < 0.3) {
                 // neon cat head perched on the parapet, staring down the run
@@ -1789,6 +2027,12 @@ function resetRun() {
     nextMilestone = 250;
     chopperOn = false;
     chopper.visible = false;
+    missile.state = 0;
+    missile.nextAt = 240;
+    lockRing.visible = false;
+    missileMesh.visible = false;
+    for (const r of rings) r.visible = false;
+    for (const sc of scorches) sc.visible = false;
     stopThump();
     catGroup.visible = true;
     document.getElementById('comboTxt').textContent = '';
@@ -2061,6 +2305,7 @@ function landOn(r, vaulted) {
         run.stats.flips++;
         const mult = Math.min(5, 1 + ((run.combo / 4) | 0));
         award(300 * mult, 'LANDED FLIP', 1000);
+        ring(run.x, run.y + 0.12, run.z, 0xffa040, 1.7, 0.35, 0.6);
         run.comboT = Math.max(run.comboT, 1.2);
         run.speed = Math.min(17, run.speed + 0.35); // Alto rule: style = speed
         tone(1046, 0.1, 'triangle', 0.12);
@@ -2073,6 +2318,7 @@ function landOn(r, vaulted) {
             run.jumps = 1;
             run.diving = false;
             burst(pad.x, r.h + 0.2, pad.z, 0x7cff00, 12, 4);
+            ring(pad.x, r.h + 0.15, pad.z, 0x7cff00, 2.4, 0.45, 0.7);
             tone(300, 0.3, 'sine', 0.16, 1400);
             setStatus('VENT LAUNCH!', 1000);
             break;
@@ -2310,6 +2556,7 @@ function simStep(dt) {
                         Math.abs(cn.y - (run.y + 0.4)) < 0.8) {
                         cn.got = true;
                         cn.mesh.visible = false;
+                        burst(cn.x, cn.y, cn.z, 0xffe08a, 3, 2); // pickup glint
                         run.combo++;
                         run.comboT = 2.2;
                         run.stats.bestCombo = Math.max(run.stats.bestCombo, run.combo);
@@ -2349,6 +2596,49 @@ function simStep(dt) {
             chopper.visible = true;
             startThump();
             setStatus('CHOPPER ON YOUR TAIL', 2200);
+        }
+
+        // chopper missile: lock ring telegraphs the impact point (1.25s), rocket
+        // dives in on a fixed 0.55s arc — steer off the ring or jump the blast
+        if (chopperOn) {
+            if (missile.state === 0 && run.z / 2 > missile.nextAt) {
+                missile.state = 1;
+                missile.t = 1.25;
+                missile.x = Math.max(-9, Math.min(9, run.x + run.vx * 0.55));
+                missile.z = run.z + run.speed * (1.25 + missile.T) * 0.92;
+                const rf = roofAt(missile.x, missile.z);
+                missile.y = rf ? rf.h : run.y;
+                tone(1180, 0.09, 'triangle', 0.09);
+                setStatus('INCOMING!', 900);
+            } else if (missile.state === 1) {
+                const prev = missile.t;
+                missile.t -= dt;
+                if (((prev * 6) | 0) !== ((missile.t * 6) | 0))
+                    tone(1180, 0.05, 'triangle', 0.055); // lock pips
+                if (missile.t <= 0) {
+                    missile.state = 2;
+                    missile.ft = missile.T;
+                    missile.sx = chopper.position.x;
+                    missile.sy = chopper.position.y + 0.5;
+                    missile.sz = chopper.position.z;
+                    tone(240, 0.5, 'sawtooth', 0.055, 1200); // launch whoosh
+                }
+            } else if (missile.state === 2) {
+                missile.ft -= dt;
+                if (missile.ft <= 0) {
+                    missile.state = 0;
+                    missile.nextAt = run.z / 2 + 45 + srand() * 35;
+                    explode(missile.x, missile.y, missile.z);
+                    const d2 = Math.hypot(run.x - missile.x, run.z - missile.z);
+                    if (run.pow.catnip <= 0 && run.grace <= 0 && d2 < 1.4 &&
+                        run.y < missile.y + 1.1) {
+                        stumble();
+                    } else if (d2 < 3.2 && state === GS.RUN) {
+                        run.stats.near++;
+                        award(150, 'DANGER CLOSE', 900);
+                    }
+                }
+            }
         }
 
         // footsteps
@@ -2435,6 +2725,99 @@ function tick() {
         }
     }
 
+    // missile visuals: pulsing lock ring + the rocket riding its dive line
+    lockRing.visible = missile.state > 0;
+    if (missile.state > 0) {
+        lockRing.position.set(missile.x, missile.y + 0.1, missile.z);
+        lockRing.scale.setScalar(missile.state === 1 ? 1 + Math.sin(now / 60) * 0.14 : 1.3);
+        lockRing.rotation.y = now / 280;
+    }
+    missileMesh.visible = missile.state === 2;
+    if (missile.state === 2) {
+        const k = 1 - missile.ft / missile.T;
+        const mx = missile.sx + (missile.x - missile.sx) * k;
+        const my = missile.sy + (missile.y - missile.sy) * k;
+        const mz = missile.sz + (missile.z - missile.sz) * k;
+        missileMesh.position.set(mx, my, mz);
+        missileMesh.lookAt(missile.x, missile.y, missile.z);
+        missileMesh.rotateX(Math.PI / 2); // body axis +Y → aim down the dive
+        if (Math.random() < 0.65) burst(mx, my, mz, 0xffb347, 1, 1.1); // exhaust sparks
+    }
+
+    // drones circle beside the run, red eyes blinking
+    spawnDrones();
+    for (const d of drones) {
+        d.g.position.set(
+            run.x * 0.3 + d.side * (7 + Math.sin(now / 2600 + d.ph) * 3),
+            run.y + 3 + Math.sin(now / 820 + d.ph) * 0.8,
+            run.z + d.zoff + Math.sin(now / 3100 + d.ph) * 6);
+        d.g.rotation.y = Math.PI + Math.sin(now / 900 + d.ph) * 0.4;
+        d.g.userData.eye.visible = Math.sin(now / 130 + d.ph) > 0;
+    }
+
+    // shockwave rings + scorch decals fade out
+    for (const r of rings) {
+        if (!r.visible) continue;
+        r.userData.t -= dt;
+        if (r.userData.t <= 0) { r.visible = false; continue; }
+        const k = 1 - r.userData.t / r.userData.dur;
+        r.scale.setScalar(0.05 + r.userData.maxR * k);
+        r.material.opacity = r.userData.op * (1 - k);
+    }
+    for (const sc of scorches) {
+        if (!sc.visible) continue;
+        sc.userData.t -= dt;
+        sc.material.opacity = Math.min(0.85, sc.userData.t * 0.4);
+        if (sc.userData.t <= 0) sc.visible = false;
+    }
+
+    // rain splash rings on nearby roofs
+    if (state === GS.RUN && Math.random() < 0.25) {
+        const sz2 = run.z + 2 + Math.random() * 9;
+        const r0 = roofAt(run.x, sz2);
+        if (r0) ring(r0.cx + (Math.random() - 0.5) * (r0.w - 1), r0.h + 0.09, sz2,
+                     0x8fb8d8, 0.32, 0.35, 0.22);
+    }
+
+    // afterburner trail at speed
+    if (state === GS.RUN && run.speed > 10.5) {
+        trailT -= dt;
+        if (trailT <= 0) {
+            trailT = 0.045;
+            const t = trail[trailIdx = (trailIdx + 1) % trail.length];
+            t.visible = true;
+            t.position.set(run.x, run.y + 0.35, run.z - 0.3);
+            t.material.opacity = Math.min(0.4, (run.speed - 10.5) * 0.08);
+            t.userData.t = 0.32;
+        }
+    }
+    for (const t of trail) {
+        if (!t.visible) continue;
+        t.userData.t -= dt;
+        if (t.userData.t <= 0) { t.visible = false; continue; }
+        t.material.opacity *= 0.9;
+        t.scale.setScalar(0.6 + (0.32 - t.userData.t) * 2.4);
+        t.rotation.z = now / 400;
+    }
+
+    // lightning: double flash on hemi+moon, thunder ~0.7s behind
+    if (now > lightNext) {
+        lightNext = now + 14000 + Math.random() * 22000;
+        lightT = 0.45;
+        thunderAt = now + 650 + Math.random() * 600;
+    }
+    if (lightT > 0) {
+        lightT -= dt;
+        const fl = (lightT > 0.32 || (lightT < 0.2 && lightT > 0.1)) ? 1 : 0;
+        hemi.intensity = 6.4 + fl * 6;
+        moonLight.intensity = 2.5 + fl * 3.2;
+        if (lightT <= 0) { hemi.intensity = 6.4; moonLight.intensity = 2.5; }
+    }
+    if (thunderAt && now > thunderAt) {
+        thunderAt = 0;
+        if (AC) nhit(AC.currentTime, 1.1, 0.11, 90, 0.4);
+    }
+
     // wind streaks at speed
     {
         const op = Math.max(0, Math.min(0.5, (run.speed - 8.5) / 12));
@@ -2468,7 +2851,9 @@ function tick() {
         for (const cn of r.coins) {
             if (!cn.got) cn.mesh.rotation.z = now / 300;
         }
-        for (const b of r.blink) b.mesh.visible = Math.sin(now / 420 + b.ph) > 0.55;
+        for (const b of r.blink) b.mesh.visible = b.f
+            ? Math.sin(now / 47 + b.ph * 7) * Math.sin(now / 131 + b.ph) > -0.85 // neon flicker: mostly on, erratic dropouts
+            : Math.sin(now / 420 + b.ph) > 0.55; // beacon blink
         for (const pad of r.pads) pad.ring.scale.set(padS, 1, padS);
         if (r.pow && !r.pow.got) {
             if (r.pow.y0 === undefined) r.pow.y0 = r.pow.mesh.position.y;
