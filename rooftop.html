@@ -160,9 +160,26 @@ import { CSS3DRenderer, CSS3DObject } from './lib/CSS3DRenderer.js';
 // =========================================================================
 // AUDIO
 // =========================================================================
-let AC = null, audioUnlocked = false;
+let AC = null, audioUnlocked = false, master = null, noiseBuf = null;
 function initAudio() {
-    if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if (!AC) {
+        AC = new (window.AudioContext || window.webkitAudioContext)();
+        // master chain: everything → lowpass (tames square/saw harmonics) →
+        // compressor (no more ear-stab peaks) → out. raw-osc-to-destination
+        // was why it hurt.
+        master = AC.createGain();
+        master.gain.value = 0.9;
+        const lp = AC.createBiquadFilter();
+        lp.type = 'lowpass'; lp.frequency.value = 6200; lp.Q.value = 0.4;
+        const comp = AC.createDynamicsCompressor();
+        comp.threshold.value = -20; comp.knee.value = 22;
+        comp.ratio.value = 7; comp.attack.value = 0.004; comp.release.value = 0.16;
+        master.connect(lp); lp.connect(comp); comp.connect(AC.destination);
+        // shared noise buffer for hats / hits / footsteps
+        noiseBuf = AC.createBuffer(1, AC.sampleRate * 0.4, AC.sampleRate);
+        const nd = noiseBuf.getChannelData(0);
+        for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    }
     if (AC.state === 'suspended') AC.resume();
     if (!audioUnlocked && AC.state !== 'suspended') {
         // iOS/mobile unlock: play a silent buffer inside the user gesture
@@ -175,27 +192,57 @@ function initAudio() {
     // mid-run recovery: if the context only just unlocked, kick the music on
     if (typeof state !== 'undefined' && state === GS.RUN && AC.state === 'running') startMusic();
 }
+// 8ms linear attack on every voice — instant-on gains were clicking constantly
+function env(g, vol, t, dur) {
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, t + Math.max(dur, 0.02));
+}
 function tone(freq, dur, type, vol, freqEnd) {
     if (!AC) return;
     const o = AC.createOscillator(), g = AC.createGain();
-    o.connect(g); g.connect(AC.destination);
+    o.connect(g); g.connect(master);
     o.type = type || 'sine';
     const t = AC.currentTime;
     o.frequency.setValueAtTime(freq, t);
     if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
-    g.gain.setValueAtTime(vol || 0.15, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.start(t); o.stop(t + dur);
+    env(g, vol || 0.15, t, dur);
+    o.start(t); o.stop(t + dur + 0.02);
 }
-function note(freq, dur, when, type, vol) {
+// filtered music voice: optional per-note lowpass keeps saw bass warm not buzzy
+function note(freq, dur, when, type, vol, cutoff) {
     if (!AC) return;
     const o = AC.createOscillator(), g = AC.createGain();
-    o.connect(g); g.connect(AC.destination);
-    o.type = type || 'square';
+    o.type = type || 'triangle';
     o.frequency.setValueAtTime(freq, when);
-    g.gain.setValueAtTime(vol || 0.06, when);
-    g.gain.exponentialRampToValueAtTime(0.001, when + dur);
-    o.start(when); o.stop(when + dur);
+    if (cutoff) {
+        const f = AC.createBiquadFilter();
+        f.type = 'lowpass'; f.frequency.value = cutoff; f.Q.value = 0.6;
+        o.connect(f); f.connect(g);
+    } else o.connect(g);
+    g.connect(master);
+    env(g, vol || 0.06, when, dur);
+    o.start(when); o.stop(when + dur + 0.02);
+}
+// noise hit through a bandpass — hats, snares, footfalls (no more 2kHz square)
+function nhit(when, dur, vol, freq, q) {
+    if (!AC) return;
+    const src = AC.createBufferSource(), g = AC.createGain(), f = AC.createBiquadFilter();
+    src.buffer = noiseBuf;
+    f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q || 1;
+    src.connect(f); f.connect(g); g.connect(master);
+    env(g, vol, when, dur);
+    src.start(when); src.stop(when + dur + 0.02);
+}
+// soft kick: sine pitch-drop, no click
+function kick(when, vol) {
+    if (!AC) return;
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.connect(g); g.connect(master);
+    o.frequency.setValueAtTime(118, when);
+    o.frequency.exponentialRampToValueAtTime(42, when + 0.11);
+    env(g, vol || 0.16, when, 0.14);
+    o.start(when); o.stop(when + 0.17);
 }
 let musicInterval = null;
 function startMusic() {
@@ -207,11 +254,13 @@ function startMusic() {
         if (!AC) return;
         const t0 = AC.currentTime + 0.02;
         for (let i = 0; i < 8; i++) {
-            note(bass[i], bd * 0.42, t0 + i * bd, 'sawtooth', 0.055);
-            note(2000, 0.03, t0 + i * bd + bd / 2, 'square', 0.015); // hat
+            // filtered saw bass = warm; kick on the downbeats carries the drive
+            note(bass[i], bd * 0.42, t0 + i * bd, 'sawtooth', 0.05, 420);
+            if (i % 2 === 0) kick(t0 + i * bd, 0.15);
+            nhit(t0 + i * bd + bd / 2, 0.035, 0.05, 6800, 1.4); // airy hat
         }
         for (let i = 0; i < 6; i++) {
-            note(arp[i], bd * 0.3, t0 + i * bd * (8 / 6), 'square', 0.02);
+            note(arp[i], bd * 0.3, t0 + i * bd * (8 / 6), 'triangle', 0.028);
         }
     }
     bar();
@@ -223,7 +272,11 @@ function stopMusic() {
 let thumpInterval = null;
 function startThump() {
     if (thumpInterval || !AC) return;
-    thumpInterval = setInterval(() => tone(52, 0.09, 'sawtooth', 0.09, 40), 190);
+    // rotor: muffled low sine pulse — the old raw-saw pulse was pure grate
+    thumpInterval = setInterval(() => {
+        tone(58, 0.1, 'sine', 0.055, 40);
+        nhit(AC.currentTime, 0.04, 0.02, 240, 0.8);
+    }, 190);
 }
 function stopThump() {
     if (thumpInterval) { clearInterval(thumpInterval); thumpInterval = null; }
@@ -313,7 +366,7 @@ const moonGroup = new THREE.Group();
 scene.add(moonGroup);
 
 // sky dome: gradient night + stars + far skyline silhouette (equirect: horizon = v 0.5)
-let skyMat, skyEnvTex;
+let skyMat, skyEnvTex, floorTex;
 {
     const c = document.createElement('canvas');
     c.width = 1024; c.height = 512;
@@ -373,14 +426,53 @@ let skyMat, skyEnvTex;
     const sky = new THREE.Mesh(new THREE.SphereGeometry(115, 28, 18), skyMat);
     sky.renderOrder = -2;
     moonGroup.add(sky);
-    // street canyon glow far below
-    const glow = new THREE.Mesh(
-        new THREE.PlaneGeometry(260, 260),
-        new THREE.MeshBasicMaterial({ color: 0x230f3a }));
-    glow.rotation.x = -Math.PI / 2;
-    glow.position.y = -9;
-    glow.renderOrder = -1;
-    moonGroup.add(glow);
+    // city floor far below: street grid + block lights + neon spill.
+    // the plane rides with the camera; a UV offset in tick keeps the
+    // texture world-anchored so the streets don't slide with you.
+    {
+        const fc = document.createElement('canvas');
+        fc.width = 256; fc.height = 256;
+        const fg = fc.getContext('2d');
+        fg.fillStyle = '#0b0417';
+        fg.fillRect(0, 0, 256, 256);
+        for (let by = 0; by < 4; by++) for (let bx = 0; bx < 4; bx++) {
+            const x0 = bx * 64 + 6, y0 = by * 64 + 6; // 12px streets between blocks
+            fg.fillStyle = '#130a26';
+            fg.fillRect(x0, y0, 52, 52);
+            for (let i = 0; i < 10; i++) {
+                if (Math.random() < 0.55) {
+                    fg.fillStyle = ['rgba(255,220,150,0.5)', 'rgba(160,220,255,0.4)', 'rgba(255,140,210,0.4)'][i % 3];
+                    fg.fillRect(x0 + 2 + Math.random() * 48, y0 + 2 + Math.random() * 48, 2, 2);
+                }
+            }
+        }
+        fg.strokeStyle = 'rgba(120,70,200,0.28)'; // faint avenue glow lines
+        fg.lineWidth = 2;
+        for (let i = 0; i < 4; i++) {
+            fg.beginPath(); fg.moveTo(i * 64, 0); fg.lineTo(i * 64, 256); fg.stroke();
+            fg.beginPath(); fg.moveTo(0, i * 64); fg.lineTo(256, i * 64); fg.stroke();
+        }
+        for (let i = 0; i < 6; i++) { // neon spill puddles at intersections
+            const gx = ((Math.random() * 4) | 0) * 64, gy = ((Math.random() * 4) | 0) * 64;
+            const rad = fg.createRadialGradient(gx, gy, 0, gx, gy, 15);
+            const col = Math.random() < 0.5 ? '255,45,149' : '0,229,255';
+            rad.addColorStop(0, 'rgba(' + col + ',0.35)');
+            rad.addColorStop(1, 'rgba(' + col + ',0)');
+            fg.fillStyle = rad;
+            fg.fillRect(gx - 15, gy - 15, 30, 30);
+        }
+        floorTex = new THREE.CanvasTexture(fc);
+        floorTex.colorSpace = THREE.SRGBColorSpace;
+        floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+        floorTex.repeat.set(4, 4); // 65 world units per tile
+        const glow = new THREE.Mesh(
+            new THREE.PlaneGeometry(260, 260),
+            new THREE.MeshBasicMaterial({ map: floorTex }));
+        glow.rotation.x = -Math.PI / 2;
+        glow.position.y = -9;
+        glow.renderOrder = -1;
+        moonGroup.add(glow);
+    }
 }
 
 // neon rain — one instanced draw call
@@ -401,6 +493,28 @@ let rainMesh, rainP;
     }
 }
 const _rm4 = new THREE.Matrix4();
+
+// car lights streaming on the streets far below — cheap moving depth cue
+const CAR_N = 34;
+let carMesh;
+const cars = [];
+{
+    const cGeo = new THREE.BoxGeometry(0.22, 0.07, 0.6);
+    carMesh = new THREE.InstancedMesh(cGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), CAR_N);
+    carMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    carMesh.frustumCulled = false;
+    const col = new THREE.Color();
+    for (let i = 0; i < CAR_N; i++) {
+        const head = Math.random() < 0.55; // headlights vs taillights
+        carMesh.setColorAt(i, col.set(head ? 0xffeecc : 0xff5544));
+        cars.push({
+            x: (Math.random() - 0.5) * 72,
+            z: Math.random() * 140 - 25,
+            v: (3.5 + Math.random() * 5) * (Math.random() < 0.5 ? 1 : -1)
+        });
+    }
+    scene.add(carMesh);
+}
 
 // $CHIEFPUSSY blimp cruising the skyline
 let blimp;
@@ -1456,6 +1570,17 @@ function makeRoof(first, spec = {}) {
 
     // background towers, both sides — with rooftop dressing
     for (const side of [-1, 1]) {
+        // street-level podium blocks — fill the canyon floor between the towers
+        const podN = 1 + (srand() < 0.5 ? 1 : 0);
+        for (let pi = 0; pi < podN; pi++) {
+            const px = cx + side * (9 + srand() * 26);
+            const pw = 4.5 + srand() * 6;
+            const pht = 2 + srand() * 4.5; // tops stay well below the run
+            const pod = new THREE.Mesh(boxGeo, towerMats[(srand() * towerMats.length) | 0]);
+            pod.scale.set(pw, pht, pw * (0.7 + srand() * 0.7));
+            pod.position.set(px, -8.5 + pht / 2, z0 + srand() * L);
+            group.add(pod);
+        }
         if (srand() < 0.8) {
             const bx = cx + side * (12 + srand() * 22);
             const th = 8 + srand() * 14;
@@ -1683,7 +1808,8 @@ function die(why) {
     stopMusic();
     stopThump();
     flash('#f00');
-    tone(300, 0.4, 'sawtooth', 0.22, 50);
+    tone(240, 0.5, 'triangle', 0.16, 46);
+    if (AC) nhit(AC.currentTime, 0.22, 0.1, 180, 0.7); // low thud, not a buzz
     const dist = Math.floor(run.z / 2);
     const isBest = dist > best;
     if (isBest) {
@@ -1736,7 +1862,7 @@ function stumble() {
     burst(run.x, run.y + 0.4, run.z, 0xffffff, 6, 3);
     flash('#ff8800');
     shakeT = 0.35;
-    tone(150, 0.3, 'sawtooth', 0.2, 55);
+    tone(140, 0.3, 'triangle', 0.15, 55);
     setStatus(spill > 0 ? 'STUMBLED! dropped ' + spill + ' BTC' : 'STUMBLED!', 1500);
 }
 
@@ -1778,7 +1904,7 @@ function downAction() {
     if (run.grounded) {
         if (run.slide <= 0) {
             run.slide = 0.55;
-            tone(180, 0.14, 'sawtooth', 0.08, 90);
+            tone(170, 0.14, 'triangle', 0.07, 85);
         }
     } else if (!run.diving) {
         run.diving = true;
@@ -2139,7 +2265,7 @@ function simStep(dt) {
                             for (const m of p.meshes) m.visible = false;
                             burst(run.x, under.h + 0.7, run.z, 0xff6a00, 14, 5);
                             award(250, 'SMASHED', 800);
-                            tone(200, 0.15, 'square', 0.15, 60);
+                            tone(180, 0.15, 'triangle', 0.13, 60);
                         } else if (run.grace <= 0) {
                             stumble();
                         }
@@ -2230,7 +2356,7 @@ function simStep(dt) {
             run._step = (run._step || 0) + dt;
             if (run._step > 2.2 / run.speed) {
                 run._step = 0;
-                tone(85, 0.04, 'sine', 0.05);
+                if (AC) nhit(AC.currentTime, 0.03, 0.035, 320, 0.8); // soft footfall tap
             }
         }
     simFrame++;
@@ -2304,7 +2430,7 @@ function tick() {
             run._siren = (run._siren || 0) - dt;
             if (run._siren <= 0) {
                 run._siren = 0.55;
-                tone(880, 0.22, 'square', 0.05, 660);
+                tone(880, 0.22, 'triangle', 0.04, 660);
             }
         }
     }
@@ -2397,7 +2523,7 @@ function tick() {
             if (!b.flying) {
                 if (state === GS.RUN && b.g.position.z - run.z < 7 && b.g.position.z > run.z - 1) {
                     b.flying = true;
-                    if (Math.abs(b.g.position.z - run.z) < 12) tone(1800, 0.05, 'square', 0.03);
+                    if (Math.abs(b.g.position.z - run.z) < 12) tone(1600, 0.05, 'triangle', 0.02);
                 }
             } else {
                 b.g.position.x += b.vx * dt;
@@ -2433,8 +2559,22 @@ function tick() {
     }
     camera.lookAt(run.x * 0.85, run.y + 0.7, run.z + 5);
 
-    // moon follows
+    // moon follows; floor texture offset cancels the ride so streets stay put
     moonGroup.position.set(camera.position.x, 0, camera.position.z);
+    floorTex.offset.set(moonGroup.position.x / 65, -moonGroup.position.z / 65);
+
+    // car lights below: stream along the streets, recycle around the runner
+    for (let i = 0; i < CAR_N; i++) {
+        const cr = cars[i];
+        cr.z += cr.v * dt;
+        if (cr.z < run.z - 30 || cr.z > run.z + 130) {
+            cr.z = cr.v > 0 ? run.z - 25 - Math.random() * 5 : run.z + 100 + Math.random() * 25;
+            cr.x = (Math.random() - 0.5) * 72;
+        }
+        _rm4.setPosition(cr.x, -8.4, cr.z);
+        carMesh.setMatrixAt(i, _rm4);
+    }
+    carMesh.instanceMatrix.needsUpdate = true;
 
     // fps
     fpsFrames++;
