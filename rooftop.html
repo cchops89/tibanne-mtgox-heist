@@ -26,6 +26,13 @@
     /* real dexscreener iframe lives BEHIND the transparent WebGL canvas;
        an alpha-hole is punched in the canvas where the jumbotron sits */
     #css3d { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+    /* cinematic grade: dark corners + a whisper of magenta up top (free bloom-adjacent look) */
+    #vig {
+        position: fixed; inset: 0; z-index: 5; pointer-events: none;
+        background:
+            radial-gradient(ellipse at 50% 42%, rgba(0,0,0,0) 52%, rgba(8,3,22,0.58) 100%),
+            linear-gradient(to bottom, rgba(46,10,72,0.16), rgba(0,0,0,0) 32%);
+    }
 
     #hud {
         position: fixed; top: 10px; left: 12px; z-index: 10;
@@ -89,8 +96,33 @@
         line-height: 68px; text-align: center; z-index: 15; display: none;
         font-family: 'Courier New', monospace; touch-action: none;
     }
+    /* virtual joystick — idle ghost shows where to steer, rides the thumb while touching */
+    #joy {
+        position: fixed; left: 21%; top: calc(100% - 128px); width: 104px; height: 104px;
+        transform: translate(-50%, -50%); border-radius: 50%;
+        border: 2px solid rgba(0,229,255,0.4); background: rgba(0,229,255,0.06);
+        z-index: 14; display: none; pointer-events: none;
+    }
+    #joy .arr { position: absolute; top: 50%; transform: translateY(-50%); color: rgba(0,229,255,0.6); font-size: 15px; }
+    #joy .arr.l { left: 7px; } #joy .arr.r { right: 7px; }
+    #joyNub {
+        position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px;
+        border-radius: 50%; background: rgba(0,229,255,0.3); border: 1px solid rgba(0,229,255,0.7);
+    }
+    #joy .lbl {
+        position: absolute; bottom: -20px; width: 100%; text-align: center;
+        color: rgba(255,255,255,0.45); font-size: 10px; white-space: nowrap;
+    }
+    #shareX {
+        display: none; margin-top: 14px; padding: 9px 22px;
+        border: 1px solid #f7931a; border-radius: 6px; color: #f7931a;
+        font-family: 'Courier New', monospace; font-size: 14px; font-weight: bold;
+        text-decoration: none; background: rgba(247,147,26,0.08); cursor: pointer;
+    }
+    #overlay .mob { display: none; color: #888; }
     @media (hover: none) and (pointer: coarse) {
-        #steerZone, #btnJump, #btnSlide { display: block; }
+        #steerZone, #btnJump, #btnSlide, #joy { display: block; }
+        #overlay .mob { display: block; }
         #hint { display: none; }
     }
 </style>
@@ -110,12 +142,16 @@
     <h1>TIBANE: ROOFTOP RUN</h1>
     <div class="sub">the heist is done. the cops are coming.</div>
     <div class="sub" style="color:#666;">850,000 BTC in the bag. don't drop it.</div>
+    <div class="sub mob">left thumb: drag = steer &middot; swipe down = slide &middot; right: JUMP / SLIDE</div>
+    <a id="shareX">share on &#120143;</a>
     <div class="go" id="goTxt">press any key / tap to RUN</div>
 </div>
 <div id="steerZone"></div>
+<div id="joy"><span class="arr l">&#9664;</span><div id="joyNub"></div><span class="arr r">&#9654;</span><div class="lbl">steer &middot; swipe &#9660; slide</div></div>
 <div id="btnJump">JUMP</div>
 <div id="btnSlide">SLIDE</div>
 <div id="css3d"></div>
+<div id="vig"></div>
 
 <script type="module">
 import * as THREE from 'three';
@@ -124,10 +160,20 @@ import { CSS3DRenderer, CSS3DObject } from './lib/CSS3DRenderer.js';
 // =========================================================================
 // AUDIO
 // =========================================================================
-let AC = null;
+let AC = null, audioUnlocked = false;
 function initAudio() {
     if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
     if (AC.state === 'suspended') AC.resume();
+    if (!audioUnlocked && AC.state !== 'suspended') {
+        // iOS/mobile unlock: play a silent buffer inside the user gesture
+        audioUnlocked = true;
+        const src = AC.createBufferSource();
+        src.buffer = AC.createBuffer(1, 1, 22050);
+        src.connect(AC.destination);
+        src.start(0);
+    }
+    // mid-run recovery: if the context only just unlocked, kick the music on
+    if (typeof state !== 'undefined' && state === GS.RUN && AC.state === 'running') startMusic();
 }
 function tone(freq, dur, type, vol, freqEnd) {
     if (!AC) return;
@@ -182,7 +228,8 @@ function startThump() {
 function stopThump() {
     if (thumpInterval) { clearInterval(thumpInterval); thumpInterval = null; }
 }
-['click', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, initAudio));
+// touchend included: some mobile browsers only unlock audio on the END of a gesture
+['click', 'keydown', 'touchstart', 'touchend'].forEach(ev => addEventListener(ev, initAudio));
 
 // =========================================================================
 // RENDERER / SCENE
@@ -195,7 +242,7 @@ renderer.toneMappingExposure = 1.4;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x150c28, 0.0145);
+scene.fog = new THREE.FogExp2(0x160a2e, 0.0145);
 
 const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 160);
 
@@ -231,7 +278,7 @@ scene.add(hemi);
 
 // zone palettes — the city changes district every 500m
 const ZONES = [
-    { fog: new THREE.Color(0x150c28), sky: new THREE.Color(0xffffff), hemi: new THREE.Color(0x6f57b8), name: 'SHIBUYA' },
+    { fog: new THREE.Color(0x160a2e), sky: new THREE.Color(0xffffff), hemi: new THREE.Color(0x7a5cc8), name: 'SHIBUYA' },
     { fog: new THREE.Color(0x0c2024), sky: new THREE.Color(0x9adfdf), hemi: new THREE.Color(0x4f8fa8), name: 'THE INDUSTRIAL WARD' },
     { fog: new THREE.Color(0x260d1a), sky: new THREE.Color(0xffaebf), hemi: new THREE.Color(0xa85f78), name: 'THE RED DISTRICT' },
     { fog: new THREE.Color(0x101226), sky: new THREE.Color(0xa8b8ff), hemi: new THREE.Color(0x5f6fb8), name: 'GOX TOWER BLOCKS' }
@@ -247,35 +294,39 @@ scene.add(catLight);
 // moon rides with the camera so it never gets passed
 const moonGroup = new THREE.Group();
 {
+    // big moon upper-left (reference shot), layered halo shells = cheap glow
     const moon = new THREE.Mesh(
-        new THREE.SphereGeometry(5, 24, 24),
-        new THREE.MeshBasicMaterial({ color: 0xf5f0e0, fog: false })
+        new THREE.SphereGeometry(6.8, 24, 24),
+        new THREE.MeshBasicMaterial({ color: 0xe8e2ff, fog: false })
     );
-    moon.position.set(26, 26, 70);
+    moon.position.set(-27, 31, 74);
     moonGroup.add(moon);
-    const halo = new THREE.Mesh(
-        new THREE.SphereGeometry(6.6, 24, 24),
-        new THREE.MeshBasicMaterial({ color: 0xf5f0e0, transparent: true, opacity: 0.14, fog: false })
-    );
-    halo.position.copy(moon.position);
-    moonGroup.add(halo);
+    for (const [r, op] of [[8.4, 0.16], [10.6, 0.07], [13.4, 0.03]]) {
+        const halo = new THREE.Mesh(
+            new THREE.SphereGeometry(r, 24, 24),
+            new THREE.MeshBasicMaterial({ color: 0xcdbcff, transparent: true, opacity: op, fog: false, depthWrite: false })
+        );
+        halo.position.copy(moon.position);
+        moonGroup.add(halo);
+    }
 }
 scene.add(moonGroup);
 
 // sky dome: gradient night + stars + far skyline silhouette (equirect: horizon = v 0.5)
-let skyMat;
+let skyMat, skyEnvTex;
 {
     const c = document.createElement('canvas');
     c.width = 1024; c.height = 512;
     const g = c.getContext('2d');
     const grad = g.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#050310');
-    grad.addColorStop(0.55, '#170b30');
-    grad.addColorStop(0.85, '#3c1850');
-    grad.addColorStop(1, '#82345e');
+    grad.addColorStop(0, '#040112');
+    grad.addColorStop(0.45, '#150a36');
+    grad.addColorStop(0.75, '#3d1468');
+    grad.addColorStop(0.92, '#7a2a8c');
+    grad.addColorStop(1, '#b8459a');
     g.fillStyle = grad;
     g.fillRect(0, 0, 1024, 256);
-    g.fillStyle = '#0a0514';
+    g.fillStyle = '#08030f';
     g.fillRect(0, 256, 1024, 256);
     for (let i = 0; i < 420; i++) {
         g.fillStyle = 'rgba(255,255,255,' + (0.2 + Math.random() * 0.6).toFixed(2) + ')';
@@ -284,17 +335,40 @@ let skyMat;
     let sx = 0;
     while (sx < 1024) {
         const bw = 16 + Math.random() * 40;
-        const bh = 16 + Math.random() * 58;
-        g.fillStyle = '#0c0618';
+        const bh = 20 + Math.random() * 74;
+        g.fillStyle = '#0b0518';
         g.fillRect(sx, 256 - bh, bw, bh + 4);
         g.fillStyle = 'rgba(255,214,140,0.55)';
         for (let wx = sx + 3; wx < sx + bw - 3; wx += 7) {
             if (Math.random() < 0.2) g.fillRect(wx, 256 - bh + 4 + Math.random() * (bh - 10), 2, 3);
         }
+        // some towers wear a full neon-pink window column
+        if (Math.random() < 0.22) {
+            g.fillStyle = 'rgba(255,45,149,0.55)';
+            g.fillRect(sx + bw / 2 - 2, 256 - bh + 5, 4, bh - 10);
+        }
         sx += bw + 2;
+    }
+    // red lattice spire on the horizon (drawn twice so one reads dead ahead)
+    for (const cxp of [512, 96]) {
+        g.fillStyle = '#160512';
+        g.beginPath();
+        g.moveTo(cxp - 22, 256); g.lineTo(cxp - 5, 148);
+        g.lineTo(cxp + 5, 148); g.lineTo(cxp + 22, 256);
+        g.closePath(); g.fill();
+        for (let ty = 156; ty < 252; ty += 11) {
+            const hw = 5 + (ty - 148) * 0.16;
+            g.fillStyle = 'rgba(255,70,96,0.8)';
+            g.fillRect(cxp - hw, ty, hw * 2, 2);
+        }
+        g.fillStyle = '#ff3b4e';
+        g.fillRect(cxp - 3, 140, 6, 9);
     }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
+    // one-time PMREM of this same sky = env reflections for the wet rooftops
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    skyEnvTex = new THREE.PMREMGenerator(renderer).fromEquirectangular(tex).texture;
     skyMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false });
     const sky = new THREE.Mesh(new THREE.SphereGeometry(115, 28, 18), skyMat);
     sky.renderOrder = -2;
@@ -302,7 +376,7 @@ let skyMat;
     // street canyon glow far below
     const glow = new THREE.Mesh(
         new THREE.PlaneGeometry(260, 260),
-        new THREE.MeshBasicMaterial({ color: 0x1c0d2e }));
+        new THREE.MeshBasicMaterial({ color: 0x230f3a }));
     glow.rotation.x = -Math.PI / 2;
     glow.position.y = -9;
     glow.renderOrder = -1;
@@ -310,11 +384,11 @@ let skyMat;
 }
 
 // neon rain — one instanced draw call
-const RAIN_N = 170;
+const RAIN_N = 280;
 let rainMesh, rainP;
 {
-    const rGeo = new THREE.BoxGeometry(0.016, 0.55, 0.016);
-    const rMat = new THREE.MeshBasicMaterial({ color: 0x9fc4e8, transparent: true, opacity: 0.28 });
+    const rGeo = new THREE.BoxGeometry(0.018, 0.8, 0.018);
+    const rMat = new THREE.MeshBasicMaterial({ color: 0xaec2f2, transparent: true, opacity: 0.34 });
     rainMesh = new THREE.InstancedMesh(rGeo, rMat, RAIN_N);
     rainMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     rainMesh.frustumCulled = false;
@@ -368,11 +442,12 @@ const skyBeams = [];
     const beamGeo = new THREE.ConeGeometry(2.4, 75, 10, 1, true);
     beamGeo.rotateX(Math.PI);
     beamGeo.translate(0, 37.5, 0);
-    const cols = [0x8fd0ff, 0xff9ad5, 0xaef7ff];
-    const px = [-40, 34, 12], pz = [72, 88, 55];
+    const cols = [0xc4a8ff, 0xff9ad5, 0xaef7ff];
+    // two beams cross up near the moon like the reference shot, one far right
+    const px = [-44, -14, 36], pz = [70, 78, 84];
     for (let i = 0; i < 3; i++) {
         const b = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({
-            color: cols[i], transparent: true, opacity: 0.055, fog: false,
+            color: cols[i], transparent: true, opacity: 0.075, fog: false,
             blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
         }));
         b.position.set(px[i], -6, pz[i]);
@@ -504,6 +579,8 @@ function signTexture(text, color) {
     g.fillRect(0, 0, 96, 256);
     g.strokeStyle = color;
     g.lineWidth = 5;
+    g.shadowColor = color;   // baked glow — reads as bloom without postprocessing
+    g.shadowBlur = 14;
     g.strokeRect(5, 5, 86, 246);
     g.fillStyle = color;
     g.font = 'bold 52px sans-serif';
@@ -517,7 +594,8 @@ function signTexture(text, color) {
     return tex;
 }
 const SIGN_TEXTS = ['ネコ', '寿司', '質屋', '酒場', 'カフェ', '猫', 'GOX', 'ラーメン', 'パチンコ'];
-const SIGN_COLORS = ['#ff2d95', '#00e5ff', '#ffe600', '#7cff00', '#ff6a00', '#a78bfa'];
+// pink/magenta weighted — the reference shot is drenched in it
+const SIGN_COLORS = ['#ff2d95', '#ff2d95', '#ff5ad5', '#00e5ff', '#ffe600', '#7cff00', '#a78bfa'];
 const signGeo = new THREE.PlaneGeometry(0.8, 2.3);
 const signMats = {};
 function signMat(text, color) {
@@ -526,19 +604,98 @@ function signMat(text, color) {
     return signMats[key];
 }
 
+// neon cat-face sign (the reference shot's signature prop)
+function catSignTexture(color) {
+    const c = document.createElement('canvas');
+    c.width = 128; c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0a0a12';
+    g.fillRect(0, 0, 128, 128);
+    g.strokeStyle = color;
+    g.fillStyle = color;
+    g.lineWidth = 4;
+    g.shadowColor = color;
+    g.shadowBlur = 12;
+    g.strokeRect(5, 5, 118, 118);
+    g.beginPath(); g.arc(64, 74, 32, 0, 7); g.stroke();          // head
+    g.beginPath(); g.moveTo(40, 52); g.lineTo(30, 22); g.lineTo(58, 44); g.stroke(); // ears
+    g.beginPath(); g.moveTo(88, 52); g.lineTo(98, 22); g.lineTo(70, 44); g.stroke();
+    g.beginPath(); g.arc(52, 70, 3.5, 0, 7); g.fill();           // eyes
+    g.beginPath(); g.arc(76, 70, 3.5, 0, 7); g.fill();
+    g.beginPath(); g.moveTo(60, 84); g.lineTo(64, 88); g.lineTo(68, 84); g.stroke(); // mouth
+    for (const s of [-1, 1]) {                                    // whiskers
+        for (const wy of [-4, 2, 8]) {
+            g.beginPath();
+            g.moveTo(64 + s * 20, 80);
+            g.lineTo(64 + s * 42, 80 + wy);
+            g.stroke();
+        }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+}
+const catSignGeo = new THREE.PlaneGeometry(1.7, 1.7);
+const catSignMats = ['#ff2d95', '#ff5ad5', '#ff9ad5'].map(col =>
+    new THREE.MeshBasicMaterial({ map: catSignTexture(col) }));
+
+// abstract neon icon panel — stacked glyphs like the tall boards in the shot
+function iconPanelTexture(color, seed) {
+    const c = document.createElement('canvas');
+    c.width = 96; c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0a0a12';
+    g.fillRect(0, 0, 96, 256);
+    let s = seed;
+    const r = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    g.strokeStyle = color;
+    g.fillStyle = color;
+    g.lineWidth = 4;
+    g.shadowColor = color;
+    g.shadowBlur = 12;
+    g.strokeRect(5, 5, 86, 246);
+    for (let i = 0; i < 3; i++) {
+        const cy = 48 + i * 78;
+        const kind = (r() * 5) | 0;
+        g.beginPath();
+        if (kind === 0) { g.arc(48, cy, 20, 0, 7); g.stroke(); }
+        else if (kind === 1) { // striped disc
+            g.arc(48, cy, 20, 0, 7); g.fill();
+            g.fillStyle = '#0a0a12'; g.shadowBlur = 0;
+            for (let y = -14; y < 20; y += 8) g.fillRect(26, cy + y, 44, 3);
+            g.fillStyle = color; g.shadowBlur = 12;
+        }
+        else if (kind === 2) { // chart zigzag
+            g.moveTo(26, cy + 14); g.lineTo(42, cy - 4); g.lineTo(54, cy + 6); g.lineTo(72, cy - 16);
+            g.stroke();
+        }
+        else if (kind === 3) { g.rect(30, cy - 16, 36, 32); g.stroke(); }
+        else { // diamond
+            g.moveTo(48, cy - 20); g.lineTo(68, cy); g.lineTo(48, cy + 20); g.lineTo(28, cy); g.closePath();
+            g.stroke();
+        }
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return tex;
+}
+const iconPanelGeo = new THREE.PlaneGeometry(1.05, 2.8);
+const iconPanelMats = [['#ff2d95', 11], ['#ff5ad5', 23], ['#c04af0', 37], ['#ff2d95', 51]].map(([col, sd]) =>
+    new THREE.MeshBasicMaterial({ map: iconPanelTexture(col, sd * 7919) }));
+
 // lit-window texture for towers (unlit material = cheap)
 function windowTexture(seed) {
     const c = document.createElement('canvas');
     c.width = 64; c.height = 128;
     const g = c.getContext('2d');
-    g.fillStyle = '#0d0b18';
+    g.fillStyle = '#0b0716';
     g.fillRect(0, 0, 64, 128);
     let s = seed;
     const r = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
     for (let y = 4; y < 124; y += 10) {
         for (let x = 4; x < 60; x += 9) {
             if (r() < 0.24) {
-                g.fillStyle = ['#ffe9a8', '#aef0ff', '#ffd0e8'][(r() * 3) | 0];
+                g.fillStyle = ['#ffe9a8', '#aef0ff', '#ffd0e8', '#ff9ad5'][(r() * 4) | 0];
                 g.fillRect(x, y, 5, 6);
             }
         }
@@ -554,17 +711,17 @@ function facadeTexture(seed) {
     const c = document.createElement('canvas');
     c.width = 256; c.height = 128;
     const g = c.getContext('2d');
-    g.fillStyle = '#1b1530';
+    g.fillStyle = '#130d26';
     g.fillRect(0, 0, 256, 128);
     let s = seed;
     const r = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
     for (let y = 6; y < 122; y += 12) {
         for (let x = 6; x < 250; x += 11) {
             if (r() < 0.26) {
-                g.fillStyle = ['#ffe9a8', '#aef0ff', '#ffd0e8', '#c9b8ff'][(r() * 4) | 0];
+                g.fillStyle = ['#ffe9a8', '#aef0ff', '#ffd0e8', '#c9b8ff', '#ff9ad5'][(r() * 5) | 0];
                 g.fillRect(x, y, 6, 7);
             } else if (r() < 0.3) {
-                g.fillStyle = '#241d3e';
+                g.fillStyle = '#1c1534';
                 g.fillRect(x, y, 6, 7);
             }
         }
@@ -580,7 +737,7 @@ const roofTexture = (() => {
     const c = document.createElement('canvas');
     c.width = 128; c.height = 128;
     const g = c.getContext('2d');
-    g.fillStyle = '#2c2645';
+    g.fillStyle = '#221a3c';
     g.fillRect(0, 0, 128, 128);
     // speckle grime only — hard lines stretch into stripes on the shared unit box
     for (let i = 0; i < 520; i++) {
@@ -593,6 +750,14 @@ const roofTexture = (() => {
         g.arc(Math.random() * 128, Math.random() * 128, 6 + Math.random() * 12, 0, 7);
         g.fill();
     }
+    // rain-slick patches — pick up a violet sheen from the env reflection
+    for (let i = 0; i < 6; i++) {
+        g.fillStyle = 'rgba(96,58,168,0.14)';
+        g.beginPath();
+        g.ellipse(Math.random() * 128, Math.random() * 128,
+            10 + Math.random() * 16, 5 + Math.random() * 9, Math.random() * 3, 0, 7);
+        g.fill();
+    }
     const tex = new THREE.CanvasTexture(c);
     tex.colorSpace = THREE.SRGBColorSpace;
     return tex;
@@ -600,9 +765,13 @@ const roofTexture = (() => {
 
 const boxGeo = new THREE.BoxGeometry(1, 1, 1);
 const facadeMat = new THREE.MeshLambertMaterial({ color: 0x241f38 });
-const roofMat = new THREE.MeshLambertMaterial({ map: roofTexture });
+// wet roof: standard material + sky env map = view-dependent neon-noir reflections
+// (only the slabs pay for it; everything else stays Lambert/Basic)
+const roofMat = new THREE.MeshStandardMaterial({
+    map: roofTexture, envMap: skyEnvTex, metalness: 0.52, roughness: 0.3, envMapIntensity: 1.2
+});
 const edgeMat = new THREE.MeshBasicMaterial({ color: 0x00e5ff });
-const sideEdgeMat = new THREE.MeshBasicMaterial({ color: 0x0a7a94 });
+const sideEdgeMat = new THREE.MeshBasicMaterial({ color: 0x00c2e8 });
 const tankMat = new THREE.MeshLambertMaterial({ color: 0x4a3f66 });
 const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff3344 });
 const beaconGeo = new THREE.SphereGeometry(0.16, 8, 8);
@@ -660,8 +829,31 @@ let memorialMat = null;
         });
     });
 }
-const posterGeo = new THREE.PlaneGeometry(3, 3);
-const memorialGeo = new THREE.PlaneGeometry(3.2, 4);
+const posterGeo = new THREE.PlaneGeometry(4.2, 4.2);
+const memorialGeo = new THREE.PlaneGeometry(4, 5);
+
+// community memes from meme.tibane.net — 60 live in assets/memes/, a random
+// subset loads each session (all 60 at once = too much texture memory on mobile)
+const MEME_COUNT = 60, MEME_LOAD = 24;
+const memeArts = []; // { mat, aspect } — filled as images finish loading
+{
+    const texLoader = new THREE.TextureLoader();
+    const picked = [];
+    while (picked.length < MEME_LOAD) {
+        const n = 1 + (Math.random() * MEME_COUNT | 0);
+        if (!picked.includes(n)) picked.push(n);
+    }
+    for (const n of picked) {
+        texLoader.load('./assets/memes/meme' + String(n).padStart(2, '0') + '.jpg', tex => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            memeArts.push({
+                mat: new THREE.MeshBasicMaterial({ map: tex }),
+                aspect: tex.image.width / tex.image.height
+            });
+        });
+    }
+}
+const memeGeo = new THREE.PlaneGeometry(1, 1); // scaled per placement to the meme's aspect
 
 // rooftop water tower (visual dressing on towers)
 function waterTower() {
@@ -807,6 +999,7 @@ const roofs = [];       // { z0, z1, h, cx, w, group, props, coins, pads, banner
 let genZ = 0;
 let nextPowZ = 300;     // first powerup ~150m in
 let nextJumboZ = 140;   // first dexscreener jumbotron ~70m in
+let nextMemeZ = 70;     // first meme billboard ~35m in
 const JSTYLES = ['fwd', 'gantry', 'fwd', 'tower']; // fwd weighted — chris wants the chart in his face
 let jumboStyle = 0;     // index into JSTYLES
 const jumboSpots = [];  // {x, y, z, rotY, scale} — live iframes ride the two nearest ahead
@@ -1146,6 +1339,7 @@ function makeRoof(first, spec = {}) {
         }
         const sheet = new THREE.Mesh(new THREE.PlaneGeometry(bw, 0.66), bannerMat);
         sheet.position.set(cx, h + 1.15, bz);
+        sheet.rotation.y = Math.PI; // face the runner — unrotated you read the mirrored back
         group.add(sheet);
         banner = { x: cx, z: bz, hw: bw / 2, mesh: sheet, smashed: false };
     }
@@ -1287,28 +1481,88 @@ function makeRoof(first, spec = {}) {
                 group.add(bcn);
                 blink.push({ mesh: bcn, ph: srand() * 6 });
             }
-            if (th > 12 && srand() < 0.45) {
-                // big neon sign on the tower face
-                const text = SIGN_TEXTS[(srand() * SIGN_TEXTS.length) | 0];
-                const color = SIGN_COLORS[(srand() * SIGN_COLORS.length) | 0];
-                const sign = new THREE.Mesh(signGeo, signMat(text, color));
-                sign.scale.setScalar(2.2);
+            if (th > 12 && srand() < 0.6) {
+                // big neon on the tower face: kanji sign / cat face / icon panel
                 const toward = bx > cx ? -1 : 1;
+                const roll = srand();
+                let sign;
+                if (roll < 0.34) {
+                    sign = new THREE.Mesh(catSignGeo, catSignMats[(srand() * catSignMats.length) | 0]);
+                    sign.scale.setScalar(1.9);
+                } else if (roll < 0.62) {
+                    sign = new THREE.Mesh(iconPanelGeo, iconPanelMats[(srand() * iconPanelMats.length) | 0]);
+                    sign.scale.setScalar(2.1);
+                } else {
+                    const text = SIGN_TEXTS[(srand() * SIGN_TEXTS.length) | 0];
+                    const color = SIGN_COLORS[(srand() * SIGN_COLORS.length) | 0];
+                    sign = new THREE.Mesh(signGeo, signMat(text, color));
+                    sign.scale.setScalar(2.2);
+                }
                 sign.position.set(bx + toward * (tw / 2 + 0.06), topY - 3 - srand() * 2, tz);
                 sign.rotation.y = toward * Math.PI / 2;
                 group.add(sign);
             }
-            if (th > 10 && srand() < 0.32) {
-                // tibane lore poster on the FRONT face — real photo, stares down the run
-                const memorial = memorialMat && srand() < 0.15;
-                const poster = new THREE.Mesh(
-                    memorial ? memorialGeo : posterGeo,
-                    memorial ? memorialMat : posterMats[(srand() * posterMats.length) | 0]);
-                poster.position.set(bx + (srand() - 0.5) * (tw - 3.4), topY - 2.6 - srand() * 2.5, tz - tw / 2 - 0.06);
-                poster.rotation.y = Math.PI;
-                group.add(poster);
+            if (th > 13 && srand() < 0.3) {
+                // neon cat head perched on the parapet, staring down the run
+                const cat = new THREE.Mesh(catSignGeo, catSignMats[(srand() * catSignMats.length) | 0]);
+                cat.scale.setScalar(1.4);
+                cat.position.set(bx + (srand() - 0.5) * (tw - 2.6), topY + 1.2, tz);
+                cat.rotation.y = Math.PI;
+                group.add(cat);
+            }
+            if (th > 10 && srand() < 0.55) {
+                // FRONT-face art staring down the run: community meme mural,
+                // tibane lore photo, or the memorial
+                const memorial = memorialMat && srand() < 0.1;
+                if (!memorial && memeArts.length && srand() < 0.6) {
+                    const art = memeArts[(srand() * memeArts.length) | 0];
+                    const mw = 4.5 + srand() * 2; // mural-sized
+                    const m = new THREE.Mesh(memeGeo, art.mat);
+                    m.scale.set(mw, mw / art.aspect, 1);
+                    m.position.set(bx + (srand() - 0.5) * Math.max(0, tw - mw * 0.6),
+                        topY - mw / art.aspect / 2 - 1.2 - srand() * 1.5, tz - tw / 2 - 0.06);
+                    m.rotation.y = Math.PI;
+                    group.add(m);
+                } else {
+                    const poster = new THREE.Mesh(
+                        memorial ? memorialGeo : posterGeo,
+                        memorial ? memorialMat : posterMats[(srand() * posterMats.length) | 0]);
+                    poster.position.set(bx + (srand() - 0.5) * (tw - 3.4), topY - 2.6 - srand() * 2.5, tz - tw / 2 - 0.06);
+                    poster.rotation.y = Math.PI;
+                    group.add(poster);
+                }
             }
         }
+    }
+
+    // giant meme billboard beside the track — meme.tibane.net wall art, lit trim,
+    // faces straight down the run so it fills the screen as you approach
+    if (!first && z0 > nextMemeZ && memeArts.length) {
+        nextMemeZ = z0 + 90 + srand() * 70;
+        const art = memeArts[(srand() * memeArts.length) | 0];
+        const side = srand() < 0.5 ? -1 : 1;
+        const mw = 7 + srand() * 3;
+        const mh = mw / art.aspect;
+        const jx = cx + side * (w / 2 + 3.5 + srand() * 2.5);
+        const jz = z1 + 1.2;
+        const jy = h + 3 + mh / 2 + srand() * 1.5;
+        const pylon = new THREE.Mesh(boxGeo, antennaMat);
+        pylon.scale.set(0.3, jy + 9, 0.3);
+        pylon.position.set(jx, (jy - 9) / 2, jz + 0.3);
+        group.add(pylon);
+        const frame = new THREE.Mesh(boxGeo, facadeMat);
+        frame.scale.set(mw + 0.5, mh + 0.5, 0.22);
+        frame.position.set(jx, jy, jz + 0.16);
+        group.add(frame);
+        const trim = new THREE.Mesh(boxGeo, edgeMat);
+        trim.scale.set(mw + 0.5, 0.08, 0.08);
+        trim.position.set(jx, jy - mh / 2 - 0.3, jz + 0.04);
+        group.add(trim);
+        const m = new THREE.Mesh(memeGeo, art.mat);
+        m.scale.set(mw, mh, 1);
+        m.position.set(jx, jy, jz);
+        m.rotation.y = Math.PI;
+        group.add(m);
     }
 
     scene.add(group);
@@ -1384,6 +1638,10 @@ function flash(color) {
 function resetRun() {
     clearWorld();
     seedState = (Math.random() * 1e9) | 0; // fresh rooftops every run
+    run.seed = seedState;                  // seed + inputLog = the whole run
+    simFrame = 0; simAcc = 0;
+    inputLog.length = 0;
+    run._lastSteer = 0;
     run.x = 0; run.y = 0; run.z = 4; run.vy = 0; run.vx = 0;
     run.speed = 7; run.grounded = true;
     run.coyote = 0; run.jumpBuf = 0; run.jumps = 0;
@@ -1395,6 +1653,7 @@ function resetRun() {
     run.stats = { flips: 0, near: 0, slides: 0, vaults: 0, bestCombo: 0, stumbles: 0 };
     nextPowZ = 300;
     nextJumboZ = 140;
+    nextMemeZ = 70;
     jumboStyle = 0;
     jumboSpots.length = 0;
     for (const j of jumbos) j.obj.visible = false;
@@ -1433,15 +1692,27 @@ function die(why) {
         document.getElementById('bestTxt').textContent = best;
     }
     const ov = document.getElementById('overlay');
-    ov.querySelector('h1').textContent = 'SFYL';
+    ov.querySelector('h1').innerHTML = 'SFYL<div style="font-size:12px;color:#8a7f6a;letter-spacing:3px;margin-top:2px;">sorry for your loss</div>';
     ov.querySelectorAll('.sub')[0].textContent = why + ' — ' + dist + 'm · ' + run.btc.toLocaleString() + ' BTC recovered';
     const s = run.stats;
     ov.querySelectorAll('.sub')[1].textContent =
         (isBest ? 'NEW BEST · ' : 'best ' + best + 'm · ') +
         'flips ' + s.flips + ' · close calls ' + s.near + ' · slides ' + s.slides +
         (s.bestCombo > 3 ? ' · combo x' + Math.min(5, 1 + ((s.bestCombo / 4) | 0)) : '');
+    document.getElementById('shareX').style.display = 'inline-block';
+    lastShare = { dist, btc: run.btc };
     document.getElementById('goTxt').textContent = 'press any key / tap to run it back';
     ov.style.display = 'flex';
+}
+
+// share the run to X — same intent-url pattern as the ALON games
+let lastShare = null;
+function shareRun() {
+    if (!lastShare) return;
+    const text = 'SFYL — I made it ' + lastShare.dist + 'm and recovered ' +
+        lastShare.btc.toLocaleString() + ' BTC in TIBANE: ROOFTOP RUN 🐈🚁 can you run it back? $CHIEFPUSSY';
+    window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text) +
+        '&url=' + encodeURIComponent('https://chiefpussy.fun/rooftop'), '_blank');
 }
 
 // glancing hits stumble instead of kill; two stumbles inside 4s = death
@@ -1470,7 +1741,12 @@ function stumble() {
 }
 
 function startRun() {
+    // audio FIRST: on touch the overlay handler fires before the window-level
+    // initAudio listener, so without this the context doesn't exist yet and
+    // startMusic() silently no-ops — that was the "no sound on mobile" bug
+    initAudio();
     document.getElementById('overlay').style.display = 'none';
+    document.getElementById('shareX').style.display = 'none';
     resetRun();
     state = GS.RUN;
     startMusic();
@@ -1485,7 +1761,20 @@ function startRun() {
 const keys = {};
 let steerTouch = 0;
 
+// every discrete input goes through these so the log captures the whole run
+function pressJump() {
+    run.jumpBuf = 0.12;
+    inputLog.push(simFrame, 1);
+}
+function cutJump() {
+    if (state === GS.RUN && !run.grounded && run.vy > 2.5) {
+        run.vy = 2.5 + (run.vy - 2.5) * 0.35;
+        inputLog.push(simFrame, 2);
+    }
+}
+
 function downAction() {
+    inputLog.push(simFrame, 3);
     if (run.grounded) {
         if (run.slide <= 0) {
             run.slide = 0.55;
@@ -1511,7 +1800,7 @@ addEventListener('keydown', e => {
     }
     keys[e.code] = true;
     if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') && !e.repeat) {
-        run.jumpBuf = 0.12;
+        pressJump();
         e.preventDefault();
     }
     if ((e.code === 'KeyS' || e.code === 'ArrowDown') && !e.repeat) {
@@ -1522,55 +1811,68 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => {
     keys[e.code] = false;
     // variable jump height: release while rising cuts the arc
-    if ((e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') &&
-        state === GS.RUN && !run.grounded && run.vy > 2.5) {
-        run.vy = 2.5 + (run.vy - 2.5) * 0.35;
-    }
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'KeyW') cutJump();
 });
 
 document.getElementById('overlay').addEventListener('touchstart', e => {
+    if (e.target.closest('#shareX')) return; // let the share tap become a click
     e.preventDefault();
     if (state !== GS.RUN) startRun();
 }, { passive: false });
-document.getElementById('overlay').addEventListener('click', () => {
+document.getElementById('overlay').addEventListener('click', e => {
+    if (e.target.closest('#shareX')) return;
     if (state !== GS.RUN) startRun();
+});
+document.getElementById('shareX').addEventListener('click', e => {
+    e.stopPropagation();
+    shareRun();
 });
 
 {
     const zone = document.getElementById('steerZone');
+    const joy = document.getElementById('joy');
+    const nub = document.getElementById('joyNub');
     let sx = null, sy = null, swiped = false;
     zone.addEventListener('touchstart', e => {
         e.preventDefault();
         sx = e.changedTouches[0].clientX;
         sy = e.changedTouches[0].clientY;
         swiped = false;
+        // joystick jumps to the thumb and brightens
+        joy.style.left = sx + 'px';
+        joy.style.top = sy + 'px';
+        joy.style.borderColor = 'rgba(0,229,255,0.85)';
     }, { passive: false });
     zone.addEventListener('touchmove', e => {
         e.preventDefault();
         if (sx === null) return;
         const t = e.changedTouches[0];
         steerTouch = Math.max(-1, Math.min(1, (t.clientX - sx) / 60));
+        const ny = Math.max(0, Math.min(26, t.clientY - sy));
+        nub.style.transform = 'translate(' + (steerTouch * 30) + 'px,' + ny + 'px)';
         // swipe down in the steer zone = slide / dive
         if (!swiped && t.clientY - sy > 55 && state === GS.RUN) {
             swiped = true;
             downAction();
         }
     }, { passive: false });
-    const end = () => { sx = null; sy = null; steerTouch = 0; };
+    const end = () => {
+        sx = null; sy = null; steerTouch = 0;
+        joy.style.left = joy.style.top = '';
+        joy.style.borderColor = '';
+        nub.style.transform = '';
+    };
     zone.addEventListener('touchend', end);
     zone.addEventListener('touchcancel', end);
 
     document.getElementById('btnJump').addEventListener('touchstart', e => {
         e.preventDefault();
-        if (state === GS.RUN) run.jumpBuf = 0.12;
+        if (state === GS.RUN) pressJump();
         else startRun();
     }, { passive: false });
     document.getElementById('btnJump').addEventListener('touchend', e => {
         e.preventDefault();
-        // release early = shorter jump, same as keyboard
-        if (state === GS.RUN && !run.grounded && run.vy > 2.5) {
-            run.vy = 2.5 + (run.vy - 2.5) * 0.35;
-        }
+        cutJump(); // release early = shorter jump, same as keyboard
     }, { passive: false });
     document.getElementById('btnSlide').addEventListener('touchstart', e => {
         e.preventDefault();
@@ -1634,7 +1936,7 @@ function landOn(r, vaulted) {
         const mult = Math.min(5, 1 + ((run.combo / 4) | 0));
         award(300 * mult, 'LANDED FLIP', 1000);
         run.comboT = Math.max(run.comboT, 1.2);
-        run.speed = Math.min(15, run.speed + 0.35); // Alto rule: style = speed
+        run.speed = Math.min(17, run.speed + 0.35); // Alto rule: style = speed
         tone(1046, 0.1, 'triangle', 0.12);
     }
     // vent pad launch
@@ -1659,14 +1961,19 @@ const clock = new THREE.Clock();
 let fpsFrames = 0, fpsLast = performance.now();
 const _camPos = new THREE.Vector3();
 
-function tick() {
-    requestAnimationFrame(tick);
-    const dt = Math.min(clock.getDelta(), 0.05);
-    const now = performance.now();
+// dookey-dash-style fixed 60Hz sim: physics are identical on every device and
+// framerate, and (with the per-run seed + input log) a run is fully
+// deterministic — replayable server-side when the leaderboard lands
+const FDT = 1 / 60;
+let simAcc = 0, simFrame = 0;
+let inputLog = []; // flat [frame, action, ...] pairs — replay/anti-cheat groundwork
 
-    if (state === GS.RUN) {
-        // speed & distance — base ramps to 15; catnip rides +1.5 on top
-        run.speed = Math.min(15, run.speed + 0.14 * dt);
+function simStep(dt) {
+        // speed & distance — base ramps to 15, then keeps creeping to 17
+        // (dookey rule: the ramp never fully stops); catnip rides +1.5 on top
+        run.speed = run.speed < 15
+            ? Math.min(15, run.speed + 0.14 * dt)
+            : Math.min(17, run.speed + 0.02 * dt);
         const spd = run.speed + (run.pow.catnip > 0 ? 1.5 : 0);
         run.z += spd * dt;
         run.phase += spd * 1.6 * dt;
@@ -1676,6 +1983,7 @@ function tick() {
         if (keys['KeyA'] || keys['ArrowLeft']) steer -= 1;
         if (keys['KeyD'] || keys['ArrowRight']) steer += 1;
         steer = Math.max(-1, Math.min(1, steer));
+        if (steer !== run._lastSteer) { inputLog.push(simFrame, 10 + steer); run._lastSteer = steer; }
         // camera looks down +Z, so screen-right = -X
         const targetVx = -steer * 5.2;
         run.vx += (targetVx - run.vx) * Math.min(1, 12 * dt);
@@ -1740,7 +2048,7 @@ function tick() {
                 if (below <= 0.95 || run.pow.catnip > 0) {
                     landOn(under, true);
                 } else {
-                    die('face-met the facade');
+                    die('smacked into the side of a building');
                 }
             } else if (run.vy <= 0 && under && run.y <= groundH + 0.02) {
                 landOn(under, false);
@@ -1810,7 +2118,7 @@ function tick() {
         document.getElementById('powTxt').textContent = powTxt;
 
         // fell into the canyon
-        if (run.y < -6) die('gravity checked the order book');
+        if (run.y < -6) die('fell into the street');
 
         // obstacle collisions: catnip smashes, otherwise stumble (with grace).
         // also tracks clean slides under ducts + near-miss close calls.
@@ -1924,6 +2232,20 @@ function tick() {
                 run._step = 0;
                 tone(85, 0.04, 'sine', 0.05);
             }
+        }
+    simFrame++;
+}
+
+function tick() {
+    requestAnimationFrame(tick);
+    const dt = Math.min(clock.getDelta(), 0.1);
+    const now = performance.now();
+
+    if (state === GS.RUN) {
+        simAcc = Math.min(simAcc + dt, FDT * 5); // heavy frame: game slows, never teleports
+        while (simAcc >= FDT) {
+            simAcc -= FDT;
+            if (state === GS.RUN) simStep(FDT);
         }
     }
 
